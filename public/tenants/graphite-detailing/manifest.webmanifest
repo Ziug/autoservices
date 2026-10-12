@@ -1,0 +1,32 @@
+{
+  "id": "/s/graphite-detailing/",
+  "name": "GRAPHITE Detailing",
+  "short_name": "GRAPHITE Detailing",
+  "description": "Точный уход за автомобилем",
+  "start_url": "/s/graphite-detailing/",
+  "scope": "/s/graphite-detailing/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#111112",
+  "theme_color": "#4690FF",
+  "icons": [
+    {
+      "src": "/tenants/graphite-detailing/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/tenants/graphite-detailing/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/tenants/graphite-detailing/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

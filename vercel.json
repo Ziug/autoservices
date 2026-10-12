@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {"source": "/s/:slug", "destination": "/index.html"},
+    {"source": "/s/:slug/:path*", "destination": "/index.html"}
+  ],
+  "headers": [
+    {"source": "/sw.js", "headers": [{"key": "Service-Worker-Allowed", "value": "/"}, {"key": "Cache-Control", "value": "no-cache"}]},
+    {"source": "/s/:slug/owner", "headers": [{"key": "Cache-Control", "value": "no-store"}]},
+    {"source": "/s/:slug/owner/:path*", "headers": [{"key": "Cache-Control", "value": "no-store"}]},
+    {"source": "/tenants/:slug/manifest.webmanifest", "headers": [{"key": "Content-Type", "value": "application/manifest+json"}, {"key": "Cache-Control", "value": "no-cache"}]}
+  ]
+}

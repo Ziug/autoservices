@@ -1,0 +1,6 @@
+[mcp_servers.shadcn]
+command = "npx"
+args = ["-y", "shadcn@latest", "mcp"]
+
+[mcp_servers.astryx]
+url = "https://astryx.atmeta.com/mcp"

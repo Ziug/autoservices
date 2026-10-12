@@ -1,0 +1,32 @@
+{
+  "id": "/s/ceramica-garage/",
+  "name": "Ceramica Garage",
+  "short_name": "Ceramica Garage",
+  "description": "Защита и восстановление кузова",
+  "start_url": "/s/ceramica-garage/",
+  "scope": "/s/ceramica-garage/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#111112",
+  "theme_color": "#D88A4A",
+  "icons": [
+    {
+      "src": "/tenants/ceramica-garage/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/tenants/ceramica-garage/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/tenants/ceramica-garage/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

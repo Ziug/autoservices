@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "slug": "graphite-detailing",
+  "name": "GRAPHITE Detailing",
+  "tagline": "Точный уход за автомобилем",
+  "description": "Детейлинг, полировка и защитные покрытия с бережным отношением к каждой детали.",
+  "city": "Санкт-Петербург",
+  "address": "Санкт-Петербург, Лиговский проспект, 274",
+  "phone": "+7 812 000-00-00",
+  "mapUrl": "https://maps.google.com/?q=Saint+Petersburg+auto+detailing",
+  "timezone": "Europe/Moscow",
+  "currency": "RUB",
+  "locale": "ru-RU",
+  "accentColor": "#4690FF",
+  "heroImage": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1800&q=85",
+  "logoImage": "/tenants/graphite-detailing/images/mark.svg",
+  "demo": true,
+  "status": "preview",
+  "bookingStepMinutes": 30,
+  "cancellationWindowHours": 12,
+  "openingHours": [
+    {"weekday": 1, "opensAt": "09:00", "closesAt": "20:00"},
+    {"weekday": 2, "opensAt": "09:00", "closesAt": "20:00"},
+    {"weekday": 3, "opensAt": "09:00", "closesAt": "20:00"},
+    {"weekday": 4, "opensAt": "09:00", "closesAt": "20:00"},
+    {"weekday": 5, "opensAt": "09:00", "closesAt": "20:00"},
+    {"weekday": 6, "opensAt": "10:00", "closesAt": "18:00"}
+  ],
+  "services": [
+    {"slug": "express-care", "name": "Экспресс-уход", "description": "Деликатная мойка, сушка и быстрая уборка салона.", "priceMinor": 490000, "durationMinutes": 90, "bufferBeforeMinutes": 10, "bufferAfterMinutes": 20, "category": "Уход", "resourceTypes": ["any"]},
+    {"slug": "interior-detail", "name": "Детейлинг салона", "description": "Глубокая очистка материалов и защита поверхностей.", "priceMinor": 1250000, "durationMinutes": 240, "bufferBeforeMinutes": 15, "bufferAfterMinutes": 30, "category": "Салон", "resourceTypes": ["any"]},
+    {"slug": "paint-correction", "name": "Полировка кузова", "description": "Восстановление блеска и коррекция мелких дефектов лака.", "priceMinor": 2850000, "durationMinutes": 600, "bufferBeforeMinutes": 30, "bufferAfterMinutes": 60, "category": "Кузов", "resourceTypes": ["any"]},
+    {"slug": "ceramic-coating", "name": "Керамическая защита", "description": "Многоэтапная подготовка и нанесение защитного покрытия.", "priceMinor": 5490000, "durationMinutes": 1440, "bufferBeforeMinutes": 60, "bufferAfterMinutes": 120, "category": "Защита", "resourceTypes": ["any", "coating"]}
+  ],
+  "resources": [
+    {"slug": "bay-one", "name": "Пост 1", "resourceType": "any"},
+    {"slug": "bay-two", "name": "Пост 2", "resourceType": "any"},
+    {"slug": "coating-bay", "name": "Пост покрытия", "resourceType": "coating"}
+  ],
+  "gallery": [
+    {"id": "paint", "image": "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1200&q=80", "caption": "Глубокий блеск после полировки", "position": 0},
+    {"id": "interior", "image": "https://images.unsplash.com/photo-1507136566006-cfc505b114fc?auto=format&fit=crop&w=1200&q=80", "caption": "Чистый салон до мелочей", "position": 1},
+    {"id": "coating", "image": "https://images.unsplash.com/photo-1607860108855-64acf2078ed9?auto=format&fit=crop&w=1200&q=80", "caption": "Защитное покрытие кузова", "position": 2}
+  ],
+  "infoCards": [
+    {"id": "care", "title": "Аккуратно", "body": "Работаем с материалами по их состоянию и рекомендациям производителя."},
+    {"id": "quality", "title": "Под контролем", "body": "Согласуем перечень работ и стоимость до начала."},
+    {"id": "timing", "title": "По записи", "body": "Выберите удобное окно — мы заранее подготовим пост."}
+  ],
+  "assistantPrompts": ["Когда ближайшее окно?", "Сколько стоит полировка?", "Как найти студию?"]
+}

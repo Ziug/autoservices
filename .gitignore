@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.env
+.env.*
+!.env.example
+.vercel/
+.DS_Store
+supabase/.temp/
+supabase/.branches/
+node_modules.recovery-backup/
+.pnpm-store/
+tsconfig.tsbuildinfo

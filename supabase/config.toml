@@ -1,0 +1,48 @@
+project_id = "autoservices"
+
+[api]
+enabled = true
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+major_version = 15
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173/**"]
+enable_signup = false
+
+[storage]
+enabled = true
+file_size_limit = "15MiB"
+
+[functions.get-slots]
+verify_jwt = false
+
+[functions.book-appointment]
+verify_jwt = false
+
+[functions.appointment-access]
+verify_jwt = false
+
+[functions.cancel-appointment]
+verify_jwt = false
+
+[functions.push-subscribe]
+verify_jwt = false
+
+[functions.owner-api]
+verify_jwt = true
+
+[functions.assistant]
+verify_jwt = false
+
+[functions.notification-dispatch]
+verify_jwt = false

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "slug": "ceramica-garage",
+  "name": "Ceramica Garage",
+  "tagline": "Защита и восстановление кузова",
+  "description": "Мастерская керамических покрытий, оклейки и точечной коррекции лакокрасочного покрытия.",
+  "city": "Казань",
+  "address": "Казань, улица Техническая, 7",
+  "phone": "+7 843 000-00-00",
+  "mapUrl": "https://maps.google.com/?q=Kazan+car+care",
+  "timezone": "Europe/Moscow",
+  "currency": "RUB",
+  "locale": "ru-RU",
+  "accentColor": "#D88A4A",
+  "heroImage": "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1800&q=85",
+  "logoImage": "/tenants/ceramica-garage/images/mark.svg",
+  "demo": true,
+  "status": "preview",
+  "bookingStepMinutes": 60,
+  "cancellationWindowHours": 24,
+  "openingHours": [
+    {"weekday": 1, "opensAt": "10:00", "closesAt": "19:00"},
+    {"weekday": 2, "opensAt": "10:00", "closesAt": "19:00"},
+    {"weekday": 3, "opensAt": "10:00", "closesAt": "19:00"},
+    {"weekday": 4, "opensAt": "10:00", "closesAt": "19:00"},
+    {"weekday": 5, "opensAt": "10:00", "closesAt": "19:00"},
+    {"weekday": 6, "opensAt": "11:00", "closesAt": "16:00"}
+  ],
+  "services": [
+    {"slug": "ceramic-check", "name": "Диагностика покрытия", "description": "Осмотр кузова и подбор системы защиты.", "priceMinor": 0, "durationMinutes": 60, "bufferBeforeMinutes": 10, "bufferAfterMinutes": 10, "category": "Осмотр", "resourceTypes": ["any"]},
+    {"slug": "film-front", "name": "Защита передней части плёнкой", "description": "Оклейка зон повышенного риска прозрачной плёнкой.", "priceMinor": 3290000, "durationMinutes": 720, "bufferBeforeMinutes": 30, "bufferAfterMinutes": 60, "category": "Плёнка", "resourceTypes": ["any", "film"]},
+    {"slug": "ceramic-pro", "name": "Керамика Pro", "description": "Подготовка поверхности и двухслойное защитное покрытие.", "priceMinor": 4190000, "durationMinutes": 1800, "bufferBeforeMinutes": 60, "bufferAfterMinutes": 120, "category": "Керамика", "resourceTypes": ["any", "coating"]}
+  ],
+  "resources": [
+    {"slug": "prep-bay", "name": "Пост подготовки", "resourceType": "any"},
+    {"slug": "film-bay", "name": "Пост плёнки", "resourceType": "film"},
+    {"slug": "coating-bay", "name": "Пост керамики", "resourceType": "coating"}
+  ],
+  "gallery": [
+    {"id": "film", "image": "https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&w=1200&q=80", "caption": "Защитная плёнка на передней части", "position": 0},
+    {"id": "finish", "image": "https://images.unsplash.com/photo-1607860108855-64acf2078ed9?auto=format&fit=crop&w=1200&q=80", "caption": "Финишная полировка перед защитой", "position": 1}
+  ],
+  "infoCards": [
+    {"id": "consult", "title": "Подбор покрытия", "body": "Сначала обсудим задачи и состояние автомобиля."},
+    {"id": "materials", "title": "Материалы с гарантией", "body": "Уточняем условия ухода и эксплуатации после работ."},
+    {"id": "handover", "title": "Прозрачная приёмка", "body": "Фиксируем состояние автомобиля и объём работ."}
+  ],
+  "assistantPrompts": ["Какие есть покрытия?", "Сколько стоит оклейка?", "Можно приехать на осмотр?"]
+}
