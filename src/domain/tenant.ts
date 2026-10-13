@@ -29,7 +29,7 @@ export const businessSchema = z.object({
   city: z.string().min(1),
   address: z.string().min(1),
   phone: z.string().min(5),
-  mapUrl: z.string().url(),
+  mapUrl: z.string().url().optional(),
   timezone: timezoneSchema,
   currency: z.string().length(3),
   locale: z.string().min(2),

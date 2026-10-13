@@ -121,7 +121,7 @@ function SettingsForm({business}: {business: BusinessConfig}) {
             {field('city', 'Город', business.city)}
             {field('address', 'Адрес', business.address)}
             {field('phone', 'Телефон', business.phone, 'tel')}
-            {field('mapUrl', 'Ссылка на карту', business.mapUrl, 'url')}
+            {field('mapUrl', 'Ссылка на карту', business.mapUrl ?? '', 'url')}
           </section>
         </details>
         <details className="set-group two-column-span" open data-collapse-mobile>
