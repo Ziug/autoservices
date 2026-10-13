@@ -33,6 +33,7 @@ export function OwnerLoginPage() {
           {mutation.isError ? <p className="form-error" role="alert">{mutation.error instanceof Error ? mutation.error.message : 'Не удалось войти.'}</p> : null}
           <Button label="Войти" type="submit" variant="primary" isLoading={mutation.isPending} isDisabled={!email || !password} />
         </form>
+        <Link to="/reset-password">Забыли пароль?</Link>
         <Link to={`/s/${business.slug}/`}>Вернуться на страницу студии</Link>
       </section>
     </section>

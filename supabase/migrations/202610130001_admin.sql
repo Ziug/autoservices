@@ -30,7 +30,7 @@ create table if not exists public.admin_audit_log (
     'admin.archive', 'admin.unarchive', 'admin.view'
   )),
   tenant_id uuid references public.tenants(id) on delete set null,
-  appointment_id uuid references public.appointments(tenant_id, id) on delete set null,
+  appointment_id uuid references public.appointments(id) on delete set null,
   reason text not null default '',
   metadata jsonb not null default '{}'::jsonb,
   success boolean not null default true,
@@ -42,7 +42,7 @@ create index if not exists admin_audit_log_admin_idx on public.admin_audit_log (
 create index if not exists admin_audit_log_created_idx on public.admin_audit_log (created_at desc);
 create index if not exists tenants_status_updated_idx on public.tenants (status, updated_at desc);
 create index if not exists tenants_archived_idx on public.tenants (archived_at) where archived_at is not null;
-create index if not exists appointments_admin_list_idx on public.appointments (tenant_id, starts_at desc, status);
+create index if not exists appointments_admin_list_idx on public.appointments (tenant_id, status, starts_at desc);
 
 -- Helper: true when the calling JWT belongs to a platform admin.
 create or replace function public.is_platform_admin()

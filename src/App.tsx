@@ -29,6 +29,8 @@ const AdminDashboardPage = lazy(() => import('@/pages/admin/AdminDashboardPage')
 const TenantDirectoryPage = lazy(() => import('@/pages/admin/TenantDirectoryPage').then((module) => ({default: module.TenantDirectoryPage})));
 const TenantDetailPage = lazy(() => import('@/pages/admin/TenantDetailPage').then((module) => ({default: module.TenantDetailPage})));
 const AuditPage = lazy(() => import('@/pages/admin/AuditPage').then((module) => ({default: module.AuditPage})));
+const ResetPasswordPage = lazy(() => import('@/pages/auth/ResetPasswordPage').then((module) => ({default: module.ResetPasswordPage})));
+const UpdatePasswordPage = lazy(() => import('@/pages/auth/UpdatePasswordPage').then((module) => ({default: module.UpdatePasswordPage})));
 
 type TenantOutlet = {business: BusinessConfig};
 
@@ -220,6 +222,8 @@ export default function App() {
       <Suspense fallback={<PageLoadingFallback />}>
         <Routes>
           <Route path="/" element={<LandingPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/update-password" element={<UpdatePasswordPage />} />
           <Route path="/s/:slug" element={<TenantShell />}>
             <Route index element={<StorefrontPage />} />
             <Route path="services" element={<ServicesPage />} />

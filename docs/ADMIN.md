@@ -87,7 +87,14 @@ Supabase (server-only): `APP_ANON_KEY`, `APP_SERVICE_ROLE_KEY`,
 `NOTIFICATION_CRON_SECRET`, LLM/VAPID — как в `.env.example`.
 Никогда не ставьте `*_SERVICE_ROLE_*`/`BOOKING_TOKEN_SECRET` в `VITE_*`.
 
-## 7. Ограничения
+## 7. Сброс пароля
+
+В панели и кабинете владельца есть ссылка «Забыли пароль?» (`/reset-password`
+→ письмо → `/update-password`). Добавьте в Supabase Dashboard → Authentication
+→ URL Configuration → Redirect URLs адрес `https://<домен>/update-password`,
+иначе письмо со ссылкой будет отклонено.
+
+## 8. Ограничения
 
 - Постоянное удаление не реализовано (только suspend/archive + аудит).
 - Дашборд показывает только вычисляемое: счётчики статусов, upcoming-7d,

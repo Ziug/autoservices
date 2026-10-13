@@ -1,5 +1,5 @@
 import {useState, type FormEvent} from 'react';
-import {useLocation, useNavigate} from 'react-router-dom';
+import {Link, useLocation, useNavigate} from 'react-router-dom';
 import {useMutation} from '@tanstack/react-query';
 import {ShieldCheck} from '@phosphor-icons/react';
 import {Banner} from '@astryxdesign/core/Banner';
@@ -64,6 +64,7 @@ export function AdminLoginPage() {
             ) : null}
             <Button label="Войти" type="submit" variant="primary" isLoading={mutation.isPending} isDisabled={!email || !password} />
           </form>
+          <Link className="admin-link" to="/reset-password">Забыли пароль?</Link>
         </VStack>
       </Card>
     </section>
