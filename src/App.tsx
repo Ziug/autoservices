@@ -27,6 +27,9 @@ const AdminLoginPage = lazy(() => import('@/pages/admin/AdminLoginPage').then((m
 const AdminLayout = lazy(() => import('@/pages/admin/AdminLayout').then((module) => ({default: module.AdminLayout})));
 const AdminDashboardPage = lazy(() => import('@/pages/admin/AdminDashboardPage').then((module) => ({default: module.AdminDashboardPage})));
 const TenantDirectoryPage = lazy(() => import('@/pages/admin/TenantDirectoryPage').then((module) => ({default: module.TenantDirectoryPage})));
+const CreateStudioPage = lazy(() => import('@/pages/admin/CreateStudioPage').then((module) => ({default: module.CreateStudioPage})));
+const StudioSetupPage = lazy(() => import('@/pages/admin/StudioSetupPage').then((module) => ({default: module.StudioSetupPage})));
+const StudioPreviewPage = lazy(() => import('@/pages/admin/StudioPreviewPage').then((module) => ({default: module.StudioPreviewPage})));
 const TenantDetailPage = lazy(() => import('@/pages/admin/TenantDetailPage').then((module) => ({default: module.TenantDetailPage})));
 const AuditPage = lazy(() => import('@/pages/admin/AuditPage').then((module) => ({default: module.AuditPage})));
 const ResetPasswordPage = lazy(() => import('@/pages/auth/ResetPasswordPage').then((module) => ({default: module.ResetPasswordPage})));
@@ -239,6 +242,9 @@ export default function App() {
             <Route element={<AdminLayout />}>
               <Route path="dashboard" element={<AdminDashboardPage />} />
               <Route path="tenants" element={<TenantDirectoryPage />} />
+              <Route path="tenants/new" element={<CreateStudioPage />} />
+              <Route path="tenants/:tenantId/setup" element={<StudioSetupPage />} />
+              <Route path="tenants/:tenantId/preview" element={<StudioPreviewPage />} />
               <Route path="tenants/:tenantId" element={<TenantDetailPage />} />
               <Route path="audit" element={<AuditPage />} />
               <Route index element={<Navigate replace to="dashboard" />} />

@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import {Link, useParams} from 'react-router-dom';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
-import {Archive, ArrowCounterClockwise, PauseCircle, PlayCircle} from '@phosphor-icons/react';
+import {Archive, ArrowCounterClockwise, ArrowSquareOut, PauseCircle, PlayCircle} from '@phosphor-icons/react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
@@ -326,6 +326,9 @@ export function TenantDetailPage() {
           </HStack>
         </section>
         <section className="admin-actions" aria-label="Действия со студией">
+          {tenant.visibility === 'draft' || tenant.visibility === 'preview' ? (
+            <Button label="Настройка и публикация" variant="primary" icon={<ArrowSquareOut aria-hidden="true" />} href={adminUrl('tenants', tenant.id, 'setup')} />
+          ) : null}
           {!tenant.suspended && !tenant.archived ? (
             <Button label="Приостановить" variant="secondary" icon={<PauseCircle aria-hidden="true" />} onClick={openSuspend} />
           ) : null}

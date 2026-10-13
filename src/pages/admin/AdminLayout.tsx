@@ -48,6 +48,18 @@ function crumbTrail(pathname: string): Array<{label: string; href?: string}> {
   const base = getAdminBasePath();
   const rest = pathname.startsWith(base) ? pathname.slice(base.length) : pathname;
   const parts = rest.split('/').filter(Boolean);
+  if (parts[0] === 'tenants' && parts[1] === 'new') {
+    return [
+      {label: 'Студии', href: adminUrl('tenants')},
+      {label: 'Новая студия'},
+    ];
+  }
+  if (parts[0] === 'tenants' && parts[1] && parts[2] === 'setup') {
+    return [
+      {label: 'Студии', href: adminUrl('tenants')},
+      {label: 'Настройка студии'},
+    ];
+  }
   if (parts[0] === 'tenants' && parts[1]) {
     return [
       {label: 'Студии', href: adminUrl('tenants')},

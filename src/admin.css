@@ -228,3 +228,107 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Studio-creation upgrade (Agent 2). Scoped under .admin-* only. */
+
+.admin-form {
+  display: grid;
+  align-content: start;
+  gap: var(--spacing-3);
+  max-width: 40rem;
+}
+
+.admin-grid-2 {
+  display: grid;
+  gap: var(--spacing-3);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.admin-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2) var(--spacing-4);
+}
+
+.admin-steps p {
+  margin: 0;
+}
+
+.admin-field-error {
+  color: var(--color-error);
+  font-weight: 600;
+}
+
+.admin-field > textarea[aria-invalid='true'],
+.admin-field > input[aria-invalid='true'] {
+  border-color: var(--color-error);
+}
+
+.admin-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.admin-section-head h2,
+.admin-section-head h3 {
+  margin: 0;
+}
+
+.admin-next-steps {
+  display: grid;
+  gap: var(--spacing-1);
+}
+
+.admin-next-steps h2 {
+  margin: 0;
+}
+
+.admin-preview-image {
+  width: 100%;
+  max-height: 16rem;
+  object-fit: cover;
+  border-radius: calc(var(--radius-container) * 0.7);
+}
+
+@media (min-width: 44rem) {
+  .admin-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Studio setup workspace: validation findings, preview hero, narrow forms. */
+
+.admin-form-card {
+  max-width: 40rem;
+}
+
+.admin-findings {
+  display: grid;
+  gap: var(--spacing-2);
+}
+
+.admin-findings-list {
+  display: grid;
+  gap: var(--spacing-1);
+  margin: 0;
+  padding-inline-start: var(--spacing-4);
+}
+
+.admin-findings-list p {
+  margin: 0;
+}
+
+.admin-preview-hero {
+  display: grid;
+  gap: var(--spacing-2);
+}
+
+.admin-preview-hero img {
+  width: 100%;
+  max-height: 16rem;
+  object-fit: cover;
+  border-radius: calc(var(--radius-container) * 0.7);
+}

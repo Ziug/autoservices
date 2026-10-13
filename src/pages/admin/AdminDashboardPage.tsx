@@ -1,6 +1,6 @@
 import {Link} from 'react-router-dom';
 import {useQuery} from '@tanstack/react-query';
-import {ArrowRight} from '@phosphor-icons/react';
+import {ArrowRight, Plus} from '@phosphor-icons/react';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
@@ -86,6 +86,10 @@ export function AdminDashboardPage() {
   return (
     <VStack gap={4} className="admin-page">
       <AdminAreaHeading title="Обзор" description="Только вычисляемые показатели: студии, записи и записанные оплаты." />
+
+      <HStack gap={2}>
+        <Button label="Создать студию" variant="primary" icon={<Plus aria-hidden="true" />} href={adminUrl('tenants', 'new')} />
+      </HStack>
 
       <VStack gap={2}>
         <Heading level={2}>Студии</Heading>

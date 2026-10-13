@@ -1,7 +1,7 @@
 import {useEffect, useState} from 'react';
 import {Link, useSearchParams} from 'react-router-dom';
 import {keepPreviousData, useQuery} from '@tanstack/react-query';
-import {ArrowCounterClockwise} from '@phosphor-icons/react';
+import {ArrowCounterClockwise, Plus} from '@phosphor-icons/react';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -126,6 +126,10 @@ export function TenantDirectoryPage() {
   return (
     <VStack gap={4} className="admin-page">
       <AdminAreaHeading title="Студии" description="Поиск и фильтр по статусу выполняются на сервере. Порядок: сначала недавно изменённые." />
+
+      <section className="admin-actions" aria-label="Действия со списком">
+        <Button label="Создать студию" variant="primary" icon={<Plus aria-hidden="true" />} href={adminUrl('tenants', 'new')} />
+      </section>
 
       <section className="admin-toolbar" aria-label="Поиск и фильтры">
         <label className="admin-field admin-field-search">

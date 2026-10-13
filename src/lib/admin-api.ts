@@ -24,6 +24,15 @@
  *   archive { tenantId, reason?, requestId } -> { archived: true }
  *   unarchive { tenantId, requestId } -> { unarchived: true }
  *   audit-list { tenantId?, action?, limit?, offset? } -> { audit, total }
+ *   create-tenant { name, slug, timezone?, currency?, requestId } -> { created, tenant }
+ *   validate-tenant { tenantId } -> { tenantId, errors[], warnings[], info[] }
+ *   publish-tenant { tenantId, requestId } -> { published } | 409 { error, errors[] }
+ *   activate-tenant { tenantId, requestId } -> { activated } | 409 { error, errors[] }
+ *   export-tenant { tenantId } | { slug } -> business.json-shaped object
+ *   update-tenant { tenantId, profile } -> { saved }
+ *   save-service { tenantId, service } -> { service }
+ *   save-resource { tenantId, resource } -> { resource }
+ *   save-date-override { tenantId, override } -> { override }
  *
  * Mutations are idempotent via client-generated `requestId` (createClientId);
  * replays return { deduped: true } and are treated as success.
@@ -104,9 +113,13 @@ export interface AdminServiceRow extends Record<string, unknown> {
   id: string;
   slug: string;
   name: string;
+  description: string;
   category: string;
   priceMinor: number;
   durationMinutes: number;
+  bufferBeforeMinutes: number;
+  bufferAfterMinutes: number;
+  resourceTypes: string[];
   active: boolean;
 }
 
@@ -122,6 +135,30 @@ export interface AdminTenantDetail {
   tenant: AdminTenantRow;
   counts: {services: number; resources: number; appointments: number};
   payments: {grossMinor: number; refundMinor: number; netMinor: number};
+}
+
+/** One validation finding. Server sends "code: message" strings; code is the part before the first ": ". */
+export interface ValidationItem {
+  code: string;
+  message: string;
+}
+
+export interface ValidationReport {
+  errors: ValidationItem[];
+  warnings: ValidationItem[];
+  info: ValidationItem[];
+}
+
+function toValidationItem(raw: unknown): ValidationItem {
+  const text = typeof raw === 'string' ? raw : '';
+  const separator = text.indexOf(': ');
+  if (separator > 0) return {code: text.slice(0, separator), message: text.slice(separator + 2)};
+  return {code: 'note', message: text || '—'};
+}
+
+function toValidationReport(raw: Record<string, unknown>): ValidationReport {
+  const list = (value: unknown): ValidationItem[] => (Array.isArray(value) ? value.map(toValidationItem) : []);
+  return {errors: list(raw.errors), warnings: list(raw.warnings), info: list(raw.info)};
 }
 
 export function newRequestId(): string {
@@ -142,16 +179,34 @@ function requireClient() {
 }
 
 /** Best-effort read of the server's {error} body from a FunctionsHttpError. */
-async function readFunctionErrorBody(error: unknown): Promise<string | null> {
+async function readFunctionErrorBody(error: unknown): Promise<Record<string, unknown> | null> {
   try {
     const context = (error as {context?: unknown}).context;
     if (context instanceof Response) {
       const copy = context.clone();
-      const body = (await copy.json()) as {error?: unknown};
-      if (body && typeof body.error === 'string' && body.error) return body.error;
+      const body = (await copy.json()) as Record<string, unknown>;
+      if (body && typeof body === 'object') return body;
     }
   } catch {
     // Fall through to the generic message.
+  }
+  return null;
+}
+
+/** Error from admin-api carrying the parsed response body (e.g. 409 validation reports). */
+export class AdminApiError extends Error {
+  body: Record<string, unknown> | null;
+  constructor(message: string, body: Record<string, unknown> | null = null) {
+    super(message);
+    this.name = 'AdminApiError';
+    this.body = body;
+  }
+}
+
+/** Extract a validation report from a publish/activate 409 error, if present. */
+export function adminApiErrorReport(error: unknown): ValidationReport | null {
+  if (error instanceof AdminApiError && error.body && ('errors' in error.body || 'warnings' in error.body)) {
+    return toValidationReport(error.body);
   }
   return null;
 }
@@ -160,11 +215,12 @@ async function invokeAdmin<T>(action: string, payload: Record<string, unknown> =
   const client = requireClient();
   const {data, error} = await client.functions.invoke('admin-api', {body: {action, ...payload}});
   if (error) {
-    const detail = await readFunctionErrorBody(error);
-    throw new Error(detail ?? (error instanceof Error && error.message ? error.message : 'Не удалось выполнить запрос. Попробуйте ещё раз.'));
+    const body = await readFunctionErrorBody(error);
+    const detail = body && typeof body.error === 'string' && body.error ? body.error : null;
+    throw new AdminApiError(detail ?? (error instanceof Error && error.message ? error.message : 'Не удалось выполнить запрос. Попробуйте ещё раз.'), body);
   }
   if (data && typeof data === 'object' && 'error' in data && typeof (data as {error: unknown}).error === 'string') {
-    throw new Error(String((data as {error: string}).error));
+    throw new AdminApiError(String((data as {error: string}).error), data as Record<string, unknown>);
   }
   return data as T;
 }
@@ -354,9 +410,13 @@ export async function listServices(tenantId: string): Promise<AdminServiceRow[]>
     id: str(row.id),
     slug: str(row.slug),
     name: str(row.name, '—'),
+    description: str(row.description),
     category: str(row.category),
     priceMinor: num(row.price_minor),
     durationMinutes: num(row.duration_minutes),
+    bufferBeforeMinutes: num(row.buffer_before_minutes),
+    bufferAfterMinutes: num(row.buffer_after_minutes),
+    resourceTypes: Array.isArray(row.resource_types) ? (row.resource_types as string[]) : ['any'],
     active: Boolean(row.active ?? true),
   }));
 }
@@ -445,4 +505,72 @@ export async function archiveTenant(tenantId: string, requestId: string, reason?
 
 export async function unarchiveTenant(tenantId: string, requestId: string) {
   return invokeAdmin<{unarchived?: boolean; deduped?: boolean}>('unarchive', {tenantId, requestId});
+}
+
+export async function createTenant(input: {name: string; slug: string; timezone: string; currency: string; requestId: string}) {
+  return invokeAdmin<{created?: boolean; deduped?: boolean; tenant?: Record<string, unknown>}>('create-tenant', {
+    name: input.name.trim(),
+    slug: input.slug.trim().toLowerCase(),
+    timezone: input.timezone,
+    currency: input.currency.toUpperCase(),
+    requestId: input.requestId,
+  });
+}
+
+export async function validateTenant(tenantId: string): Promise<ValidationReport & {tenantId: string}> {
+  const raw = await invokeAdmin<Record<string, unknown>>('validate-tenant', {tenantId});
+  return {...toValidationReport(raw), tenantId: str(raw.tenantId, tenantId)};
+}
+
+export async function publishTenant(tenantId: string, requestId: string) {
+  // Note: on 409 the server also returns the blocking validation report
+  // (errors/warnings/info) alongside the error message.
+  return invokeAdmin<{published?: boolean; deduped?: boolean}>('publish-tenant', {tenantId, requestId});
+}
+
+export async function activateTenant(tenantId: string, requestId: string) {
+  return invokeAdmin<{activated?: boolean; deduped?: boolean}>('activate-tenant', {tenantId, requestId});
+}
+
+/** Full business.json-shaped object for export/preview (keys are camelCase). */
+export async function exportTenant(tenantId: string): Promise<Record<string, unknown>> {
+  return invokeAdmin<Record<string, unknown>>('export-tenant', {tenantId});
+}
+
+export async function updateAdminTenantProfile(tenantId: string, profile: Record<string, unknown>) {
+  return invokeAdmin<{saved?: boolean}>('update-tenant', {tenantId, profile});
+}
+
+export async function saveAdminService(tenantId: string, service: Record<string, unknown>) {
+  return invokeAdmin<{service?: Record<string, unknown>}>('save-service', {tenantId, service});
+}
+
+export async function saveAdminResource(tenantId: string, resource: Record<string, unknown>) {
+  return invokeAdmin<{resource?: Record<string, unknown>}>('save-resource', {tenantId, resource});
+}
+
+export async function saveAdminDateOverride(tenantId: string, override: Record<string, unknown>) {
+  return invokeAdmin<{override?: Record<string, unknown>}>('save-date-override', {tenantId, override});
+}
+
+export interface AdminDateOverrideRow extends Record<string, unknown> {
+  id: string;
+  localDate: string;
+  isClosed: boolean;
+  opensAt: string | null;
+  closesAt: string | null;
+  label: string;
+}
+
+export async function listAdminOverrides(tenantId: string): Promise<AdminDateOverrideRow[]> {
+  const raw = await invokeAdmin<{overrides?: Record<string, unknown>[]}>('list-overrides', {tenantId});
+  return (Array.isArray(raw.overrides) ? raw.overrides : []).map((row) => ({
+    ...row,
+    id: str(row.id),
+    localDate: str(row.local_date),
+    isClosed: Boolean(row.is_closed),
+    opensAt: strOrNull(row.opens_at),
+    closesAt: strOrNull(row.closes_at),
+    label: str(row.label),
+  }));
 }
