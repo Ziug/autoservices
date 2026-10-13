@@ -101,9 +101,21 @@ export async function cancelAppointment(business: BusinessConfig, appointmentId:
   return data as {cancelled: boolean};
 }
 
-export async function signInOwner(email: string, password: string) {
+export async function signInOwner(identifier: string, password: string) {
   const client = requireSupabase();
-  const {data, error} = await client.auth.signInWithPassword({email, password});
+  const {data: membership, error: lookupError} = await client.from('tenant_memberships')
+    .select('user_id, username')
+    .eq('username', identifier.toLowerCase())
+    .single();
+  if (lookupError || !membership) {
+    throw new Error('Имя пользователя не найдено.');
+  }
+  const userId = membership.user_id;
+  const {data: authUser, error: userError} = await client.auth.admin.getUserById(userId);
+  if (userError || !authUser?.user?.email) {
+    throw new Error('Не удалось найти email пользователя.');
+  }
+  const {data, error} = await client.auth.signInWithPassword({email: authUser.user.email, password});
   if (error) throw new Error(error.message);
   return data.user;
 }

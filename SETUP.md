@@ -68,7 +68,7 @@ pnpm test:e2e
 
 6. Чтобы включить push, создайте VAPID-ключи (`pnpm dlx web-push generate-vapid-keys`), задайте VAPID secrets, а публичный ключ добавьте в `VITE_VAPID_PUBLIC_KEY`. Затем выполните SQL из `supabase/schedule-notifications.sql` в Supabase SQL Editor; файл создаёт расписание через pg_cron, pg_net и Vault.
 
-7. Создайте владельцу аккаунт в Supabase Auth вручную. Публичная регистрация выключена. Добавьте его UUID в `tenant_memberships` только нужной студии. Пример SQL находится в [документации развёртывания](docs/DEPLOYMENT.md).
+7. Создайте владельцу аккаунт в Supabase Auth вручную. Публичная регистрация выключена. Добавьте его UUID и уникальное имя пользователя (username) в `tenant_memberships` только нужной студии. Имя пользователя используется для входа вместо email. Пример SQL с username смотрите в документации развёртывания [DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Новая студия
 

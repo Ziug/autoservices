@@ -41,14 +41,16 @@
 
    Настройте секреты: `pnpm dlx supabase@latest secrets set NAME=value ...`. Не вставляйте эту команду с реальными значениями в историю репозитория.
 
-8. В Supabase Auth создайте владельцу пользователя по почте и паролю. Узнайте его UUID в панели Auth и вставьте членство для конкретной студии:
+8. В Supabase Auth создайтевладельцу пользователя по почте и паролю. Узнайте его UUID в панели Auth и вставьте членство для конкретной студии:
 
    ```sql
-   insert into public.tenant_memberships (tenant_id, user_id, role)
-   select id, '<auth-user-uuid>', 'owner'
+   insert into public.tenant_memberships (tenant_id, user_id, role, username)
+   select id, '<auth-user-uuid>', 'owner', '<username>'
    from public.tenants where slug = 'north-studio'
-   on conflict (tenant_id, user_id) do update set role = excluded.role;
+   on conflict (tenant_id, user_id) do update set role = excluded.role, username = excluded.username;
    ```
+
+   Имя пользователя (username) должно быть уникальным и использоваться для входа вместо email.
 
    Создайте профиль студии через [короткую инструкцию](NEW-TENANT.md). `tenant:publish` загружает новую студию как preview; после публикации сайта `tenant:verify` проверяет публичный адрес, а `tenant:activate` переводит только проверенный non-demo профиль в live.
 
