@@ -15,5 +15,20 @@
       "url": "https://astryx.atmeta.com/mcp",
       "enabled": true
     }
+  },
+"provider": {
+    "RadoxAI": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Radox AI",
+      "options": {
+        "baseURL": "https://radoxai.com/v1",
+        "apiKey": "cc_SywoZWFBFtXGNHRcQfGJzzP9PeMuKjKePB04SHGHksJdWS3g"
+      },
+      "models": {
+        "claude-opus-5.5": {
+          "name": "claude-opus-5.5"
+        }
+      }
+    }
   }
 }

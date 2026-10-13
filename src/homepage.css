@@ -1,14 +1,15 @@
 /**
- * Premium automotive homepage (Phase 3).
+ * Storefront — app-native homepage (professional, calm, dense).
  *
- * New `.sf-*` namespace only. Gallery / approach / visit sections keep
- * their `app.css` classes untouched, and nothing here targets `.booking-*`
- * or `.drawer-*`, so the protected popup is unaffected.
+ * Palette: true black (#050608) + inked surfaces + single accent per tenant.
+ * No marketing-hero scale: titles sit at native-app size, density stays high,
+ * glass is reserved for exactly two surfaces (hero CTA + bottom nav).
+ * New `.sf-*` namespace only; never targets `.booking-*` / `.drawer-*`.
  */
 
 .sf-hero {
   display: grid;
-  gap: var(--spacing-4);
+  gap: var(--spacing-3);
   min-width: 0;
 }
 
@@ -38,8 +39,8 @@
   position: absolute;
   z-index: 1;
   inset: auto 0 0;
-  height: 64%;
-  background: linear-gradient(180deg, transparent, color-mix(in srgb, #050608 92%, transparent));
+  height: 68%;
+  background: linear-gradient(180deg, transparent 8%, color-mix(in srgb, #050608 88%, transparent) 62%, #050608 100%);
   pointer-events: none;
 }
 
@@ -49,6 +50,10 @@
   inset-block-start: var(--spacing-3);
   inset-inline-start: var(--spacing-3);
   margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .sf-hero-titles {
@@ -63,6 +68,8 @@
 
 .sf-hero-titles .eyebrow {
   color: rgb(245 246 248 / 0.72);
+  font-size: var(--ds-eyebrow-size);
+  letter-spacing: var(--ds-eyebrow-tracking);
 }
 
 .sf-hero-title {
@@ -72,10 +79,10 @@
   font-size: var(--ds-title-size);
   font-weight: var(--ds-title-weight);
   line-height: var(--ds-title-leading);
-  letter-spacing: -0.02em;
+  letter-spacing: var(--ds-title-tracking);
   text-wrap: balance;
   overflow-wrap: anywhere;
-  text-shadow: 0 1px 12px rgb(0 0 0 / 0.55);
+  text-shadow: 0 1px 14px rgb(0 0 0 / 0.5);
 }
 
 .sf-hero-cta {
@@ -87,25 +94,25 @@
   align-items: center;
   gap: var(--spacing-3);
   min-width: 0;
-  min-height: 3.5rem;
-  padding: var(--spacing-3) var(--spacing-4);
-  border: var(--border-width) solid rgb(245 246 248 / 0.2);
+  min-height: 3.25rem;
+  padding: var(--spacing-2) var(--spacing-4);
+  border: var(--border-width) solid rgb(245 246 248 / 0.18);
   border-radius: var(--radius-full);
   background: var(--ds-glass-bg-strong);
   color: #ffffff;
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 650;
-  text-shadow: 0 1px 8px rgb(0 0 0 / 0.45);
+  text-shadow: 0 1px 8px rgb(0 0 0 / 0.4);
   backdrop-filter: blur(var(--ds-glass-blur-strong)) saturate(var(--ds-glass-saturate));
   -webkit-backdrop-filter: blur(var(--ds-glass-blur-strong)) saturate(var(--ds-glass-saturate));
   box-shadow:
-    inset 0 1px 0 rgb(245 246 248 / 0.12),
+    inset 0 1px 0 rgb(245 246 248 / 0.11),
     0 var(--spacing-2) var(--spacing-5) rgb(0 0 0 / 0.45);
 }
 
 .sf-hero-cta svg {
-  width: var(--ds-icon-md);
-  height: var(--ds-icon-md);
+  width: 1rem;
+  height: 1rem;
   margin-inline-start: auto;
   flex: 0 0 auto;
 }
@@ -121,18 +128,19 @@
 
 .sf-identity {
   display: grid;
-  gap: var(--spacing-2);
+  gap: var(--spacing-1);
   min-width: 0;
 }
 
 .sf-tagline {
   max-width: 32rem;
   margin: 0;
-  font-size: 1rem;
+  color: var(--ds-text-2);
+  font-size: 0.92rem;
   line-height: 1.55;
 }
 
-/* Compact studio stats: icon + number + label tiles from real tenant data. */
+/* Compact studio stats — two small app tiles, not billboard cards. */
 .sf-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -145,10 +153,10 @@
   align-content: center;
   gap: var(--spacing-1);
   min-width: 0;
-  min-height: 4.5rem;
-  padding: var(--spacing-3) var(--spacing-4);
+  min-height: 4.2rem;
+  padding: var(--spacing-3) var(--spacing-3);
   border: var(--border-width) solid var(--ds-border-subtle);
-  border-radius: var(--radius-container);
+  border-radius: calc(var(--radius-container) * 0.9);
   background: var(--ds-surface);
 }
 
@@ -160,44 +168,45 @@
 }
 
 .sf-stat-top svg {
-  width: var(--ds-icon-md);
-  height: var(--ds-icon-md);
+  width: 1.05rem;
+  height: 1.05rem;
   flex: 0 0 auto;
-  color: var(--ds-text);
+  color: var(--ds-muted);
 }
 
 .sf-stat-top strong {
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.015em;
 }
 
 .sf-stat > small {
   min-width: 0;
   color: var(--ds-text-2);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
-/* Starting-price strip: one tappable row to the full catalog. */
+/* Price entry — single dense row into catalog, not a card farm. */
 .sf-price-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--spacing-3);
   min-width: 0;
-  min-height: 4.5rem;
-  padding: var(--spacing-3) var(--spacing-4);
+  min-height: 4rem;
+  padding: var(--spacing-3) var(--spacing-3);
   border: var(--border-width) solid var(--ds-border-subtle);
-  border-radius: var(--radius-container);
+  border-radius: calc(var(--radius-container) * 0.85);
   background: var(--ds-surface);
   color: var(--ds-text);
 }
 
 .sf-price-row:active {
-  transform: scale(0.995);
+  transform: scale(0.99);
   border-color: var(--ds-accent-border);
 }
 
@@ -209,29 +218,29 @@
 .sf-price-icon {
   display: grid;
   place-items: center;
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2.25rem;
+  height: 2.25rem;
   border: var(--border-width) solid var(--ds-border-subtle);
-  border-radius: var(--radius-element);
+  border-radius: calc(var(--radius-element) * 0.9);
   background: var(--ds-surface-2);
 }
 
 .sf-price-icon svg {
-  width: var(--ds-icon-md);
-  height: var(--ds-icon-md);
-  color: var(--ds-text);
+  width: 1rem;
+  height: 1rem;
+  color: var(--ds-muted);
 }
 
 .sf-price-copy {
   display: grid;
-  gap: var(--spacing-0-5);
+  gap: 1px;
   min-width: 0;
 }
 
 .sf-price-copy small {
   min-width: 0;
   color: var(--ds-text-2);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   line-height: 1.3;
   overflow-wrap: anywhere;
   text-overflow: ellipsis;
@@ -241,16 +250,17 @@
 
 .sf-price-copy strong {
   min-width: 0;
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   font-weight: 700;
   line-height: 1.25;
+  letter-spacing: -0.015em;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
 .sf-entry-arrow {
-  width: var(--ds-icon-md);
-  height: var(--ds-icon-md);
+  width: 1rem;
+  height: 1rem;
   flex: 0 0 auto;
   color: var(--ds-muted);
 }
@@ -259,13 +269,13 @@
   color: var(--ds-accent);
 }
 
-/* Booking intro card: compact action block into the existing flow. */
+/* Booking intro — the one primary CTA on the storefront. Calm, not loud. */
 .sf-book-heading {
   margin: 0;
   font-size: var(--ds-section-size);
   font-weight: var(--ds-section-weight);
   line-height: var(--ds-section-leading);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.015em;
   text-wrap: balance;
 }
 
@@ -276,21 +286,21 @@
   align-items: center;
   gap: var(--spacing-3);
   min-width: 0;
-  min-height: 5rem;
-  padding: var(--spacing-4);
+  min-height: 4.6rem;
+  padding: var(--spacing-3) var(--spacing-4);
   overflow: clip;
-  border: var(--border-width) solid var(--ds-border-subtle);
-  border-radius: calc(var(--radius-container) * 1.25);
+  border: var(--border-width) solid var(--ds-accent-border);
+  border-radius: calc(var(--radius-container) * 1.05);
   background:
-    radial-gradient(circle at 85% 20%, rgb(70 144 255 / 0.14), transparent 55%),
+    radial-gradient(circle at 86% 18%, rgb(70 144 255 / 0.18), transparent 52%),
     var(--ds-surface);
   color: var(--ds-text);
   isolation: isolate;
 }
 
 .sf-book-card:active {
-  transform: scale(0.995);
-  border-color: var(--ds-accent-border);
+  transform: scale(0.99);
+  border-color: var(--ds-accent);
 }
 
 .sf-book-card:focus-visible {
@@ -300,38 +310,40 @@
 
 .sf-book-copy {
   display: grid;
-  gap: var(--spacing-1);
+  gap: 2px;
   min-width: 0;
 }
 
 .sf-book-copy strong {
-  font-size: 1.05rem;
-  font-weight: 650;
+  font-size: 0.98rem;
+  font-weight: 680;
   line-height: 1.3;
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 
 .sf-book-copy p {
   margin: 0;
-  font-size: 0.88rem;
-  line-height: 1.5;
+  color: var(--ds-text-2);
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .sf-book-icon {
   display: grid;
   place-items: center;
-  width: 3rem;
-  height: 3rem;
+  width: 2.6rem;
+  height: 2.6rem;
   flex: 0 0 auto;
-  border: var(--border-width) solid rgb(245 246 248 / 0.16);
+  border: var(--border-width) solid rgb(70 144 255 / 0.28);
   border-radius: var(--radius-full);
-  background: rgb(245 246 248 / 0.06);
+  background: rgb(70 144 255 / 0.12);
 }
 
 .sf-book-icon svg {
-  width: var(--ds-icon-md);
-  height: var(--ds-icon-md);
-  color: var(--ds-text);
+  width: 1.05rem;
+  height: 1.05rem;
+  color: var(--ds-accent);
 }
 
 @media (prefers-reduced-motion: reduce) {

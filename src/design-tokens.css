@@ -10,29 +10,32 @@
  */
 
 :root {
-  /* Page + surface hierarchy (solid dark surfaces; glass reserved, see below). */
+  /* Page + surface hierarchy (true black base, surfaces step up subtly).
+     Solid dark surfaces; real glass (backdrop-filter / liquid-gl) is reserved
+     for exactly two chrome pieces: hero CTA and floating bottom nav. */
   --ds-page: #050608;
-  --ds-surface: #0c0e12;
-  --ds-surface-2: #12151a;
-  --ds-elevated: #191d24;
+  --ds-surface: #0e1016;
+  --ds-surface-2: #141820;
+  --ds-elevated: #1b1f29;
 
-  /* Primary accent. Matches the tenant default (#4690FF); per-tenant accent
-     continues to flow through TenantTheme `--color-accent`. */
+  /* Primary accent. Tenant accent flows via --color-accent; this is the
+     fallback for previews and the value behind --ds-accent-* aliases. */
   --ds-accent: #4690ff;
   --ds-accent-soft: rgb(70 144 255 / 0.14);
-  --ds-accent-border: rgb(70 144 255 / 0.45);
+  --ds-accent-border: rgb(70 144 255 / 0.42);
+  --ds-accent-glow: rgb(70 144 255 / 0.22);
   /* Dark ink on accent fill meets 4.5:1 for button labels (white on #4690FF
      does not). Body copy never sits directly on the accent. */
   --ds-accent-ink: #0a1420;
 
-  /* Text hierarchy. */
+  /* Text hierarchy — tuned for white-on-black readability on phones. */
   --ds-text: #f5f6f8;
-  --ds-text-2: #a1a7b2;
-  --ds-muted: #747c88;
+  --ds-text-2: #aab1bf;
+  --ds-muted: #7a828f;
 
-  /* Borders. */
-  --ds-border-subtle: #272c35;
-  --ds-border-strong: rgb(245 246 248 / 0.16);
+  /* Borders — subtle by default, stronger only where separation must read. */
+  --ds-border-subtle: #232833;
+  --ds-border-strong: rgb(245 246 248 / 0.15);
 
   /* States. */
   --ds-focus-ring: var(--ds-accent);
@@ -40,14 +43,17 @@
   --ds-selected-border: var(--ds-accent);
   --ds-disabled-opacity: 0.45;
 
-  /* Typography roles. Compact app-like scale: page titles stay well below
-     the current marketing hero size; all roles reuse Astryx type tokens. */
-  --ds-title-size: clamp(1.6rem, 5.2vw, 2.1rem);
-  --ds-title-leading: 1.12;
-  --ds-title-weight: 650;
-  --ds-section-size: clamp(1.25rem, 4vw, 1.5rem);
-  --ds-section-leading: 1.2;
+  /* Typography — app scale, not marketing hero. Titles feel native, not
+     billboard. Supporting copy never goes below 13px equivalent at rest. */
+  --ds-title-size: clamp(1.45rem, 5vw, 1.95rem);
+  --ds-title-leading: 1.14;
+  --ds-title-weight: 680;
+  --ds-title-tracking: -0.02em;
+  --ds-section-size: clamp(1.15rem, 3.8vw, 1.35rem);
+  --ds-section-leading: 1.22;
   --ds-section-weight: 650;
+  --ds-eyebrow-size: 0.68rem;
+  --ds-eyebrow-tracking: 0.12em;
   --ds-card-title-size: var(--font-size-lg);
   --ds-card-title-weight: var(--font-weight-semibold);
   --ds-card-title-leading: 1.35;
@@ -75,19 +81,20 @@
   --ds-icon-md: 1.25rem;
   --ds-icon-lg: 1.5rem;
 
-  /* Mobile navigation dimensions (match current shell rhythm). */
-  --ds-nav-height: 4.25rem;
+  /* Mobile navigation — native app feel: true pill, centered, never full width. */
+  --ds-nav-height: 4.1rem;
   --ds-nav-radius: var(--radius-full);
-  --ds-nav-max-width: 40rem;
+  --ds-nav-max-width: 35rem;
+  --ds-nav-pad: var(--spacing-2);
 
-  /* Glass treatments. Strong glass is reserved for exactly two surfaces:
-     the hero booking action and the floating mobile navigation. */
+  /* Glass — two surfaces only: hero CTA + floating bottom nav. Everything
+     else stays on solid --ds-surface-* so text never competes with blur. */
   --ds-glass-blur: 16px;
   --ds-glass-blur-strong: 24px;
   --ds-glass-saturate: 150%;
   --ds-glass-bg: rgb(18 21 26 / 0.72);
-  --ds-glass-bg-strong: rgb(18 21 26 / 0.62);
-  --ds-glass-border: rgb(245 246 248 / 0.14);
+  --ds-glass-bg-strong: rgb(16 19 26 / 0.58);
+  --ds-glass-border: rgb(245 246 248 / 0.12);
 
   /* Motion. Reuses Astryx durations; entrance stays subtle. */
   --ds-motion-fast: var(--duration-fast);

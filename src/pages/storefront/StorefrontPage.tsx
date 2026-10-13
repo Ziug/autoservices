@@ -69,7 +69,7 @@ export function StorefrontPage() {
         <section className="sf-hero-media" aria-label={`Фото студии ${business.name}`}>
           <img className="sf-hero-photo" src={business.heroImage} alt={`Автомобиль в студии ${business.name}`} loading="eager" onError={(event) => { event.currentTarget.src = business.logoImage; }} />
           <section className="sf-hero-shade" aria-hidden="true" />
-          <p className="preview-pill sf-hero-status"><span className={status.open ? 'status-dot status-dot-open' : 'status-dot'} aria-hidden="true" />{status.short}</p>
+          <p className="preview-pill sf-hero-status" role="status" aria-live="polite"><span className={status.open ? 'status-dot status-dot-open' : 'status-dot'} aria-hidden="true" />{status.short}</p>
           <section className="sf-hero-titles">
             <p className="eyebrow">{business.city}</p>
             <Heading className="sf-hero-title" level={1}>{business.name}</Heading>
@@ -91,8 +91,8 @@ export function StorefrontPage() {
 
       <section className="content-section" id="services" data-liquid-ignore data-reveal>
         <header className="section-heading">
-          <section><p className="eyebrow">Услуги</p><Heading level={2}>Направления и цены</Heading></section>
-          <Text color="secondary">Полный каталог с точной стоимостью — внутри записи.</Text>
+          <section><p className="eyebrow">Прайс</p><Heading level={2}>Услуги и цены</Heading></section>
+          <Text color="secondary">Точная стоимость — внутри. Выберите услугу, чтобы перейти к записи.</Text>
         </header>
         {(() => {
           const entry = serviceEntry(business);

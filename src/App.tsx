@@ -181,9 +181,9 @@ function PublicNavigation({slug}: {slug: string}) {
   return (
     <nav className="mobile-nav" aria-label="Нижняя навигация">
       <section className="mobile-nav-content">
-        <Link className="mobile-nav-link" to={`${tenantPath}/`} aria-current={isHome ? 'page' : undefined}><House weight="regular" aria-hidden="true" /><small>Главная</small></Link>
-        <Link className="mobile-nav-link" to={`${tenantPath}/services`} aria-current={isServices ? 'page' : undefined}><CarProfile weight="regular" aria-hidden="true" /><small>Услуги</small></Link>
-        <Link className="mobile-nav-link" to={`${tenantPath}/my-booking`} aria-current={isMyBooking ? 'page' : undefined}><CalendarDots weight="regular" aria-hidden="true" /><small>Моя запись</small></Link>
+        <Link className="mobile-nav-link" to={`${tenantPath}/`} aria-current={isHome ? 'page' : undefined}><House weight={isHome ? 'fill' : 'regular'} aria-hidden="true" /><small>Главная</small></Link>
+        <Link className="mobile-nav-link" to={`${tenantPath}/services`} aria-current={isServices ? 'page' : undefined}><CarProfile weight={isServices ? 'fill' : 'regular'} aria-hidden="true" /><small>Услуги</small></Link>
+        <Link className="mobile-nav-link" to={`${tenantPath}/my-booking`} aria-current={isMyBooking ? 'page' : undefined}><CalendarDots weight={isMyBooking ? 'fill' : 'regular'} aria-hidden="true" /><small>Моя запись</small></Link>
       </section>
     </nav>
   );
