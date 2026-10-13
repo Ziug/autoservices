@@ -47,7 +47,7 @@ pnpm test:e2e
 
 2. Скопируйте `.env.example` в `.env.local`. Для браузера укажите `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` и, если нужен push, публичный VAPID-ключ. Для команд `tenant:publish`, `tenant:verify` и `tenant:activate` также задайте `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` и `PUBLIC_BASE_URL`; CLI читает эти локальные значения из `.env.local`.
 
-3. В Supabase Edge Function Secrets задайте `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `BOOKING_TOKEN_SECRET`, `APP_PUBLIC_URL` и `APP_ALLOWED_ORIGINS`. Для планировщика также задайте `NOTIFICATION_CRON_SECRET`. Ключ service role, секрет доступа к записи и ключ модели не должны иметь префикс `VITE_`.
+3. В Supabase Edge Function Secrets задайте `APP_ANON_KEY` (publishable-ключ), `APP_SERVICE_ROLE_KEY` (secret-ключ), `BOOKING_TOKEN_SECRET`, `APP_PUBLIC_URL` и `APP_ALLOWED_ORIGINS`. Имена собственных секретов не должны начинаться с `SUPABASE_` — этот префикс зарезервирован платформой (`SUPABASE_URL` при этом доступен функциям автоматически). Для планировщика также задайте `NOTIFICATION_CRON_SECRET`. Ключ service role, секрет доступа к записи и ключ модели не должны иметь префикс `VITE_`.
 
 4. Разверните функции:
 

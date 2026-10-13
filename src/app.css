@@ -452,7 +452,6 @@ img { display: block; max-width: 100%; }
 .booking-review-row > p { margin: 0; font-size: 0.75rem; line-height: 1.35; }
 .booking-review-row > strong { min-width: 0; font-size: 0.82rem; font-weight: 600; line-height: 1.35; text-align: end; overflow-wrap: anywhere; }
 .booking-review-note { margin: 0; font-size: 0.77rem; line-height: 1.4; }
-.booking-demo-note-inline { margin: 0; padding: var(--spacing-2) var(--spacing-3); border: var(--border-width) solid color-mix(in srgb, var(--color-accent) 32%, var(--color-border)); border-radius: calc(var(--radius-container) * 0.7); background: color-mix(in srgb, var(--color-accent) 10%, transparent); color: var(--color-text-secondary); font-size: 0.72rem; }
 .booking-flow .astryx-button { min-height: 3rem; }
 
 @media (min-width: 44rem) {

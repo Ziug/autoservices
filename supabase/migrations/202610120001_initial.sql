@@ -295,13 +295,13 @@ language sql stable security definer set search_path = '' as $$
     where t.slug = p_slug and t.status in ('preview', 'live')
   ), hours as (
     select selected.*, coalesce(overrides.is_closed, false) as is_closed,
-      coalesce(overrides.opens_at, (selected_open->>'opensAt')::time) as opens_at,
-      coalesce(overrides.closes_at, (selected_open->>'closesAt')::time) as closes_at
+      coalesce(overrides.opens_at, (selected_open.day_value->>'opensAt')::time) as opens_at,
+      coalesce(overrides.closes_at, (selected_open.day_value->>'closesAt')::time) as closes_at
     from selected
     left join public.date_overrides overrides on overrides.tenant_id = selected.tenant_id and overrides.local_date = p_local_day
     left join lateral (
-      select day from jsonb_array_elements((select t.opening_hours from public.tenants t where t.id = selected.tenant_id)) day
-      where (day->>'weekday')::integer = extract(dow from p_local_day)::integer
+      select day_value from jsonb_array_elements((select t.opening_hours from public.tenants t where t.id = selected.tenant_id)) as day_value
+      where (day_value->>'weekday')::integer = extract(dow from p_local_day)::integer
       limit 1
     ) selected_open on true
   ), candidates as (

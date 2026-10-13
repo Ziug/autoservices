@@ -51,7 +51,7 @@ function TenantShell() {
         <Heading level={1}>Не удалось открыть студию</Heading>
         <Text color="secondary">{query.error instanceof Error ? query.error.message : 'Попробуйте обновить страницу или проверьте ссылку.'}</Text>
         <Button label="Повторить" variant="primary" onClick={() => void query.refetch()} />
-        <Link to="/">К списку демо-студий</Link>
+        <Link to="/">К списку студий</Link>
       </section>
     );
   }
@@ -79,7 +79,6 @@ function TenantShell() {
             </nav>
           )}
           <section className="topbar-actions">
-            {business.demo ? <Text className="preview-pill" type="supporting">Демо</Text> : null}
             <Link className="desktop-link" to={isOwner ? `/s/${business.slug}/` : `/s/${business.slug}/owner/login`}>
               {isOwner ? 'На сайт' : 'Кабинет'}
             </Link>

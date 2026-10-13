@@ -108,7 +108,7 @@ export function AppointmentPage() {
       <section className="booking-heading" data-reveal>
         <p className="eyebrow">Подтверждение записи</p>
         <Heading className="booking-title" level={1}>{appointment.status === 'cancelled' ? 'Запись отменена' : 'Вы записаны'}</Heading>
-        <Text color="secondary">{business.name} · {business.demo ? 'демо-режим' : 'подтверждено студией'}</Text>
+        <Text color="secondary">{business.name} · подтверждено студией</Text>
       </section>
       <Card className="summary-panel appointment-summary">
         <section className="booking-summary"><section><strong>{appointment.serviceName}</strong><p>{localDayLabel(appointment.startsAt, business.timezone)} · {localTimeLabel(appointment.startsAt, business.timezone)}</p></section><strong className="booking-total">{money(appointment.priceMinor, business.currency, business.locale)}</strong></section>
@@ -116,10 +116,9 @@ export function AppointmentPage() {
         <Text><MapPin aria-hidden="true" /> {business.address}, {business.city}</Text>
         <section className="contact-actions">
           <Button label="Добавить в календарь" variant="primary" icon={<CalendarPlus weight="bold" />} onClick={() => downloadCalendarEvent(business.name, appointment)} />
-          {!business.demo && appointment.status === 'confirmed' ? <Button label="Включить напоминание за сутки" variant="secondary" onClick={() => void subscribe(appointment)} /> : null}
+          {appointment.status === 'confirmed' ? <Button label="Включить напоминание за сутки" variant="secondary" onClick={() => void subscribe(appointment)} /> : null}
           <Button label="Скопировать ссылку доступа" variant="secondary" icon={<Copy weight="bold" />} onClick={() => { void navigator.clipboard?.writeText(window.location.href).then(() => setMessage('Ссылка доступа скопирована.')); }} />
         </section>
-        {business.demo ? <p className="assistant-note">Демо-запись не отправляет push и не связывается с реальной студией. Файл ICS можно добавить в календарь.</p> : null}
         {message ? <p className={message.includes('не удалось') ? 'form-error' : 'form-success'} role="status">{message}</p> : null}
         {appointment.status === 'confirmed' && canCancel ? <Button label="Отменить запись" variant="destructive" icon={<XCircle weight="bold" />} onClick={() => setCancelOpen(true)} isLoading={cancelMutation.isPending} /> : null}
         {appointment.status === 'confirmed' && !canCancel ? <p className="assistant-note">До начала меньше {business.cancellationWindowHours} ч. Позвоните в студию, чтобы изменить запись.</p> : null}

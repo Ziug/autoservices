@@ -389,7 +389,6 @@ export function BookingPage() {
                     <section className="booking-review-row"><Text color="secondary">Автомобиль</Text><strong>{vehicle.trim()}</strong></section>
                   </section>
                   <Text className="booking-review-note" color="secondary">Ссылка для управления записью придёт после подтверждения.</Text>
-                  {business.demo ? <p className="booking-demo-note booking-demo-note-inline">Демо-режим · уведомления не отправляются</p> : null}
                   {formError ? <p className="booking-inline-error" role="alert">{formError}</p> : null}
                   <footer className="booking-flow-footer booking-flow-footer-split">
                     <Button className="booking-flow-back" label="Назад" variant="secondary" onClick={() => goTo('contact')} />

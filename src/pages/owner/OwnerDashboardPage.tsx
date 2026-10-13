@@ -178,10 +178,9 @@ export function OwnerDashboardPage() {
         <section className="owner-heading-copy"><p className="eyebrow">{business.name}</p><Heading level={1}>Расписание</Heading><Text color="secondary">Записи, этапы работ и фактически полученные оплаты.</Text></section>
         <section className="owner-actions">
           <Button label="Обновить" variant="secondary" icon={<ArrowClockwise />} onClick={() => void scheduleQuery.refetch()} isLoading={scheduleQuery.isFetching} />
-          {hasSupabaseConfig && !business.demo ? <Button label="Выйти" variant="ghost" icon={<SignOut />} onClick={() => void logout()} /> : <Link to={`/s/${business.slug}/owner/settings`}>Настройки демо</Link>}
+          <Button label="Выйти" variant="ghost" icon={<SignOut />} onClick={() => void logout()} />
         </section>
       </header>
-      {business.demo ? <p className="preview-pill" role="note">Демо · изменения и оплаты хранятся только в этом браузере</p> : null}
       <section className="owner-period-bar">
         <section className="week-picker">
           <Button label="Предыдущий период" tooltip="Предыдущий период" variant="secondary" size="lg" isIconOnly icon={<ArrowLeft />} onClick={() => setSelectedDate(shiftDate(selectedDate, period === 'day' ? -1 : -7))} />

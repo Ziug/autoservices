@@ -131,9 +131,9 @@ function SettingsForm({business}: {business: BusinessConfig}) {
             {field('locale', 'Локаль', business.locale)}
             {field('accentColor', 'Акцентный цвет', business.accentColor, 'color')}
             {field('heroImage', 'Фото на главной', business.heroImage, 'url')}
-            <label className="upload-control"><UploadSimple aria-hidden="true" /><small>{uploading === 'heroImage' ? 'Загружаем фото…' : 'Загрузить фото на главную'}</small><input accept="image/jpeg,image/png,image/webp" disabled={business.demo || !hasSupabaseConfig || Boolean(uploading)} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void upload(file, 'heroImage'); event.currentTarget.value = ''; }} type="file" /></label>
+            <label className="upload-control"><UploadSimple aria-hidden="true" /><small>{uploading === 'heroImage' ? 'Загружаем фото…' : 'Загрузить фото на главную'}</small><input accept="image/jpeg,image/png,image/webp" disabled={!hasSupabaseConfig || Boolean(uploading)} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void upload(file, 'heroImage'); event.currentTarget.value = ''; }} type="file" /></label>
             {field('logoImage', 'Логотип', business.logoImage, 'url')}
-            <label className="upload-control"><UploadSimple aria-hidden="true" /><small>{uploading === 'logoImage' ? 'Загружаем логотип…' : 'Загрузить логотип'}</small><input accept="image/jpeg,image/png,image/webp" disabled={business.demo || !hasSupabaseConfig || Boolean(uploading)} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void upload(file, 'logoImage'); event.currentTarget.value = ''; }} type="file" /></label>
+            <label className="upload-control"><UploadSimple aria-hidden="true" /><small>{uploading === 'logoImage' ? 'Загружаем логотип…' : 'Загрузить логотип'}</small><input accept="image/jpeg,image/png,image/webp" disabled={!hasSupabaseConfig || Boolean(uploading)} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void upload(file, 'logoImage'); event.currentTarget.value = ''; }} type="file" /></label>
           </section>
         </details>
         <details className="set-group two-column-span" open data-collapse-mobile>
@@ -366,11 +366,11 @@ function GalleryEditor({business}: {business: BusinessConfig}) {
   return (
     <section className="owner-panel" id="set-gallery">
       <header className="section-heading"><section><p className="eyebrow">Примеры работ</p><Heading level={2}>Галерея</Heading></section><Text type="supporting">Добавление сохраняет все существующие фотографии.</Text></header>
-      <label className="upload-control"><UploadSimple aria-hidden="true" /><small>Добавить фотографию</small><input accept="image/jpeg,image/png,image/webp" disabled={business.demo || !hasSupabaseConfig || uploading} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void upload(file); event.currentTarget.value = ''; }} type="file" /></label>
+      <label className="upload-control"><UploadSimple aria-hidden="true" /><small>Добавить фотографию</small><input accept="image/jpeg,image/png,image/webp" disabled={!hasSupabaseConfig || uploading} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void upload(file); event.currentTarget.value = ''; }} type="file" /></label>
       {business.gallery.length ? <section className="gallery-admin">{business.gallery.map((photo) => <article className="gallery-admin-row" key={photo.id}>
         <img src={photo.image} alt="" />
         <label className="field"><small>Подпись</small><input defaultValue={photo.caption} onBlur={(event) => { const caption = event.currentTarget.value.trim(); if (caption && caption !== photo.caption) updatePhoto(photo.id, {caption}); }} /></label>
-        <label className="upload-control"><UploadSimple aria-hidden="true" /><small>Заменить фото</small><input accept="image/jpeg,image/png,image/webp" disabled={business.demo || !hasSupabaseConfig || uploading} onChange={async (event) => {
+        <label className="upload-control"><UploadSimple aria-hidden="true" /><small>Заменить фото</small><input accept="image/jpeg,image/png,image/webp" disabled={!hasSupabaseConfig || uploading} onChange={async (event) => {
           const file = event.currentTarget.files?.[0]; event.currentTarget.value = '';
           if (!file || !supabase) return;
           if (!allowedImageTypes.includes(file.type) || file.size > 15 * 1024 * 1024) { setMessage('Выберите JPG, PNG или WebP размером до 15 МБ.'); return; }
@@ -398,7 +398,6 @@ export function OwnerSettingsPage() {
   return (
     <section className="owner-page owner-settings">
       <header className="owner-heading"><section className="owner-heading-copy"><p className="eyebrow">Управление студией</p><Heading level={1}>Настройки</Heading><Text color="secondary">Обновите публичные данные, прайс, занятость и материалы главной страницы.</Text></section></header>
-      {business.demo ? <p className="preview-pill" role="note">В демо-режиме изменения применяются только в этом браузере.</p> : null}
       {businessQuery.isError ? <p className="form-error" role="alert">{businessQuery.error instanceof Error ? businessQuery.error.message : 'Не удалось загрузить настройки.'}</p> : null}
       <nav className="owner-settings-nav" aria-label="Разделы настроек">
         <a href="#set-profile">Профиль</a>

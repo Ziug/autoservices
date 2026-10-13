@@ -14,7 +14,7 @@ export default defineConfig({
       manifest: false,
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,webp,png,jpg,jpeg,avif,json,woff2}'],
-        globIgnores: ['**/owner/**', '**/tenants/*/manifest.webmanifest'],
+        globIgnores: ['**/owner/**', '**/tenants/*/manifest.webmanifest', '**/tenants/*/business.json'],
       },
       devOptions: {enabled: false},
     }),

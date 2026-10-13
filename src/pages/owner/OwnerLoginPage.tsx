@@ -5,7 +5,6 @@ import {Button} from '@astryxdesign/core/Button';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {useTenant} from '@/App';
 import {signInOwner} from '@/lib/tenant-api';
-import {hasSupabaseConfig} from '@/lib/supabase';
 
 export function OwnerLoginPage() {
   const business = useTenant();
@@ -21,19 +20,6 @@ export function OwnerLoginPage() {
     event.preventDefault();
     mutation.mutate();
   };
-
-  if (!hasSupabaseConfig || business.demo) {
-    return (
-      <section className="page-content">
-        <section className="booking-panel owner-login">
-          <p className="eyebrow">Предпросмотр</p>
-          <Heading level={1}>Кабинет студии</Heading>
-          <Text color="secondary">Демонстрационное расписание доступно без входа. Чтобы включить аккаунты владельцев, подключите проект Supabase.</Text>
-          <Link to={`/s/${business.slug}/owner/`}>Открыть демо-расписание</Link>
-        </section>
-      </section>
-    );
-  }
 
   return (
     <section className="page-content">

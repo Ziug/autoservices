@@ -169,9 +169,13 @@ async function buildAssets() {
   const entries = await allTenants();
   const slugs = entries.map(({config}) => config.slug);
   if (new Set(slugs).size !== slugs.length) throw new Error('Tenant slugs must be unique.');
+  // Production (Vercel) builds never bundle demo tenants unless explicitly allowed.
+  // Local dev, staging previews, and tests keep them via INCLUDE_DEMO_TENANTS=1 or any non-Vercel env.
+  const includeDemo = process.env.INCLUDE_DEMO_TENANTS === '1' || process.env.VERCEL !== '1';
+  const buildable = includeDemo ? entries : entries.filter(({config}) => !config.demo);
   await fs.rm(publicRoot, {recursive: true, force: true});
   await fs.mkdir(publicRoot, {recursive: true});
-  for (const {config, directory} of entries) {
+  for (const {config, directory} of buildable) {
     const target = path.join(publicRoot, config.slug);
     await fs.mkdir(target, {recursive: true});
     await fs.copyFile(path.join(directory, 'business.json'), path.join(target, 'business.json'));
@@ -206,7 +210,7 @@ async function buildAssets() {
     await fs.writeFile(path.join(target, 'manifest.webmanifest'), `${JSON.stringify(manifest, null, 2)}\n`);
     await fs.writeFile(path.join(target, 'startup-image.png'), makeStartupImage(1170, 2532, config.accentColor, background));
   }
-  console.log(`Prepared tenant manifests and icons for ${entries.length} business profiles.`);
+  console.log(`Prepared tenant manifests and icons for ${buildable.length} business profiles${buildable.length === entries.length ? '' : ` (${entries.length - buildable.length} demo skipped)`}.`);
 }
 
 async function createTenant(slug) {
