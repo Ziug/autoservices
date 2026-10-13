@@ -10,6 +10,10 @@ import {InstallMetadata} from '@/components/install-metadata';
 import {RevealSections} from '@/components/reveal-sections';
 import {TenantTheme} from '@/components/tenant-theme';
 import {loadBusiness} from '@/lib/tenant-api';
+import {getAdminBasePath} from '@/lib/admin-config';
+import {supabase} from '@/lib/supabase';
+import {LandingPage} from '@/pages/admin/LandingPage';
+import {SuspendedStudioPage} from '@/pages/admin/SuspendedStudioPage';
 
 const StorefrontPage = lazy(() => import('@/pages/storefront/StorefrontPage').then((module) => ({default: module.StorefrontPage})));
 const ServicesPage = lazy(() => import('@/pages/storefront/ServicesPage').then((module) => ({default: module.ServicesPage})));
@@ -19,11 +23,57 @@ const AppointmentPage = lazy(() => import('@/pages/booking/AppointmentPage').the
 const OwnerDashboardPage = lazy(() => import('@/pages/owner/OwnerDashboardPage').then((module) => ({default: module.OwnerDashboardPage})));
 const OwnerLoginPage = lazy(() => import('@/pages/owner/OwnerLoginPage').then((module) => ({default: module.OwnerLoginPage})));
 const OwnerSettingsPage = lazy(() => import('@/pages/owner/OwnerSettingsPage').then((module) => ({default: module.OwnerSettingsPage})));
+const AdminLoginPage = lazy(() => import('@/pages/admin/AdminLoginPage').then((module) => ({default: module.AdminLoginPage})));
+const AdminLayout = lazy(() => import('@/pages/admin/AdminLayout').then((module) => ({default: module.AdminLayout})));
+const AdminDashboardPage = lazy(() => import('@/pages/admin/AdminDashboardPage').then((module) => ({default: module.AdminDashboardPage})));
+const TenantDirectoryPage = lazy(() => import('@/pages/admin/TenantDirectoryPage').then((module) => ({default: module.TenantDirectoryPage})));
+const TenantDetailPage = lazy(() => import('@/pages/admin/TenantDetailPage').then((module) => ({default: module.TenantDetailPage})));
+const AuditPage = lazy(() => import('@/pages/admin/AuditPage').then((module) => ({default: module.AuditPage})));
 
 type TenantOutlet = {business: BusinessConfig};
 
 export function useTenant() {
   return useOutletContext<TenantOutlet>().business;
+}
+
+/**
+ * When a studio page fails to load, probe public visibility: suspended or
+ * archived studios render a neutral notice (no internal reasons), everything
+ * else falls back to the generic error.
+ */
+function TenantVisibilityProbe({slug, message, onRetry}: {slug: string; message: string; onRetry: () => void}) {
+  const probe = useQuery({
+    queryKey: ['tenant-visibility', slug],
+    queryFn: async () => {
+      if (!supabase) throw new Error('probe-unavailable');
+      const {data, error} = await supabase.rpc('public_tenant_visibility', {p_slug: slug});
+      if (error) throw error;
+      return String(data ?? 'not_found');
+    },
+    retry: false,
+    staleTime: 60_000,
+  });
+
+  if (probe.isLoading) {
+    return (
+      <section className="app-shell loading-page" aria-busy="true" aria-label="Проверяем доступность студии">
+        <section className="skeleton-line" />
+        <section className="skeleton-line skeleton-large" />
+        <section className="skeleton-line" />
+        <PublicNavigation slug={slug} />
+      </section>
+    );
+  }
+  if (probe.data === 'suspended') return <SuspendedStudioPage />;
+  if (probe.data === 'archived') return <SuspendedStudioPage archived />;
+  return (
+    <section className="not-found" role="alert">
+      <Heading level={1}>Не удалось открыть студию</Heading>
+      <Text color="secondary">{message}</Text>
+      <Button label="Повторить" variant="primary" onClick={onRetry} />
+      <Link to="/">К списку студий</Link>
+    </section>
+  );
 }
 
 function TenantShell() {
@@ -46,14 +96,8 @@ function TenantShell() {
     );
   }
   if (query.isError || !query.data) {
-    return (
-      <section className="not-found" role="alert">
-        <Heading level={1}>Не удалось открыть студию</Heading>
-        <Text color="secondary">{query.error instanceof Error ? query.error.message : 'Попробуйте обновить страницу или проверьте ссылку.'}</Text>
-        <Button label="Повторить" variant="primary" onClick={() => void query.refetch()} />
-        <Link to="/">К списку студий</Link>
-      </section>
-    );
+    const message = query.error instanceof Error ? query.error.message : 'Попробуйте обновить страницу или проверьте ссылку.';
+    return <TenantVisibilityProbe slug={slug} message={message} onRetry={() => void query.refetch()} />;
   }
 
   const business = query.data;
@@ -140,6 +184,19 @@ function PublicNavigation({slug}: {slug: string}) {
   );
 }
 
+/** Generic 404: reveals nothing about hidden areas. Also used for unknown admin paths. */
+function PublicNotFound() {
+  return (
+    <section className="app-shell">
+      <section className="not-found" role="status">
+        <Heading level={1}>Страница не найдена</Heading>
+        <Text color="secondary">Проверьте ссылку или вернитесь к списку студий.</Text>
+        <Button label="К списку студий" variant="primary" href="/" />
+      </section>
+    </section>
+  );
+}
+
 function PageLoadingFallback() {
   const {pathname} = useLocation();
   const [, segment, slug] = pathname.split('/');
@@ -156,11 +213,13 @@ function PageLoadingFallback() {
 }
 
 export default function App() {
+  // Admin base path comes from VITE_ADMIN_PATH (obscurity only); no secret literal here.
+  const adminRelative = getAdminBasePath().replace(/^\/+/, '');
   return (
     <BrowserRouter>
       <Suspense fallback={<PageLoadingFallback />}>
         <Routes>
-          <Route path="/" element={<Navigate replace to="/s/graphite-detailing/" />} />
+          <Route path="/" element={<LandingPage />} />
           <Route path="/s/:slug" element={<TenantShell />}>
             <Route index element={<StorefrontPage />} />
             <Route path="services" element={<ServicesPage />} />
@@ -171,7 +230,18 @@ export default function App() {
             <Route path="owner" element={<OwnerDashboardPage />} />
             <Route path="owner/settings" element={<OwnerSettingsPage />} />
           </Route>
-          <Route path="*" element={<Navigate replace to="/s/graphite-detailing/" />} />
+          <Route path={adminRelative}>
+            <Route path="login" element={<AdminLoginPage />} />
+            <Route element={<AdminLayout />}>
+              <Route path="dashboard" element={<AdminDashboardPage />} />
+              <Route path="tenants" element={<TenantDirectoryPage />} />
+              <Route path="tenants/:tenantId" element={<TenantDetailPage />} />
+              <Route path="audit" element={<AuditPage />} />
+              <Route index element={<Navigate replace to="dashboard" />} />
+            </Route>
+            <Route path="*" element={<PublicNotFound />} />
+          </Route>
+          <Route path="*" element={<PublicNotFound />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

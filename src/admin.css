@@ -1,0 +1,230 @@
+/* Super Admin styles. Scoped under .admin-* only; no global overrides. */
+
+.admin-page {
+  display: grid;
+  align-content: start;
+  gap: var(--spacing-4);
+  width: 100%;
+  min-width: 0;
+  max-width: 72rem;
+  margin-inline: auto;
+}
+
+.admin-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+}
+
+.admin-page-head-copy {
+  display: grid;
+  gap: var(--spacing-1);
+  min-width: 0;
+}
+
+.admin-page-head-copy h1,
+.admin-page-head-copy h2,
+.admin-page-head-copy p {
+  margin: 0;
+}
+
+.admin-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-2);
+}
+
+.admin-kpi-value {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-kpi-label {
+  margin: 0;
+}
+
+.admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--spacing-2);
+}
+
+.admin-field {
+  display: grid;
+  gap: var(--spacing-1);
+  min-width: 0;
+}
+
+.admin-field > small {
+  color: var(--color-text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.admin-field input,
+.admin-field select,
+.admin-field textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.9rem;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: var(--border-width) solid var(--color-border-emphasized);
+  border-radius: calc(var(--radius-container) * 0.7);
+  background: var(--color-background-body);
+  color: var(--color-text-primary);
+}
+
+.admin-field textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.admin-field-search {
+  flex: 1 1 14rem;
+}
+
+.admin-field-select {
+  flex: 1 1 9rem;
+  max-width: 16rem;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.admin-pagination-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.admin-pagination-row p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+}
+
+.admin-table-note {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+}
+
+.admin-definition-list {
+  display: grid;
+  gap: var(--spacing-2);
+  margin: 0;
+}
+
+.admin-definition-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.8fr) minmax(0, 1.4fr);
+  gap: var(--spacing-3);
+  align-items: baseline;
+  padding-block: var(--spacing-1);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.admin-definition-row > small {
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+}
+
+.admin-definition-row > p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-login-wrap {
+  display: grid;
+  place-items: center;
+  min-height: 70dvh;
+  padding: var(--spacing-4);
+}
+
+.admin-login-card {
+  width: min(100%, 26rem);
+}
+
+.admin-login-form {
+  display: grid;
+  gap: var(--spacing-3);
+}
+
+.admin-skeleton-stack {
+  display: grid;
+  gap: var(--spacing-2);
+}
+
+.admin-tab-panel {
+  display: grid;
+  align-content: start;
+  gap: var(--spacing-4);
+  min-width: 0;
+  padding-block-start: var(--spacing-3);
+}
+
+.admin-link {
+  color: var(--color-text-accent);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.admin-link:hover {
+  text-decoration: underline;
+}
+
+.admin-tab-scroll {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+@media (min-width: 44rem) {
+  .admin-page {
+    gap: var(--spacing-5);
+  }
+
+  .admin-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--spacing-3);
+  }
+
+  .admin-kpi-grid-5 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .admin-kpi-value {
+    font-size: 1.7rem;
+  }
+
+  .admin-definition-row {
+    grid-template-columns: minmax(10rem, 0.6fr) minmax(0, 1.4fr);
+  }
+}
+
+@media (max-width: 43.99rem) {
+  .admin-field-select {
+    max-width: none;
+  }
+
+  .admin-definition-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--spacing-0-5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-page * {
+    transition-duration: 0.01ms !important;
+  }
+}

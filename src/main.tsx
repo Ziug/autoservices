@@ -8,6 +8,7 @@ import '@/app-shell.css';
 import '@/homepage.css';
 import '@/services.css';
 import '@/owner-settings.css';
+import '@/admin.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element is missing.');
