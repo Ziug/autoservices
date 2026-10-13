@@ -12,6 +12,7 @@ import {TenantTheme} from '@/components/tenant-theme';
 import {loadBusiness} from '@/lib/tenant-api';
 
 const StorefrontPage = lazy(() => import('@/pages/storefront/StorefrontPage').then((module) => ({default: module.StorefrontPage})));
+const ServicesPage = lazy(() => import('@/pages/storefront/ServicesPage').then((module) => ({default: module.ServicesPage})));
 const BookingPage = lazy(() => import('@/pages/booking/BookingPage').then((module) => ({default: module.BookingPage})));
 const MyBookingPage = lazy(() => import('@/pages/booking/AppointmentPage').then((module) => ({default: module.MyBookingPage})));
 const AppointmentPage = lazy(() => import('@/pages/booking/AppointmentPage').then((module) => ({default: module.AppointmentPage})));
@@ -73,7 +74,7 @@ function TenantShell() {
           ) : (
             <nav className="tenant-nav" aria-label="Разделы студии">
               <NavLink to={`/s/${business.slug}/`} end>Студия</NavLink>
-              <Link to={`/s/${business.slug}/#services`}>Услуги</Link>
+              <NavLink to={`/s/${business.slug}/services`}>Услуги</NavLink>
               <NavLink to={`/s/${business.slug}/booking`}>Записаться</NavLink>
             </nav>
           )}
@@ -123,18 +124,17 @@ function RouteLoadingFallback({title}: {title: string}) {
 }
 
 function PublicNavigation({slug}: {slug: string}) {
-  const {pathname, hash} = useLocation();
+  const {pathname} = useLocation();
   const tenantPath = `/s/${slug}`;
-  const isTenantHome = pathname === tenantPath || pathname === `${tenantPath}/`;
-  const isServices = isTenantHome && hash === '#services';
-  const isHome = isTenantHome && !isServices;
+  const isHome = pathname === tenantPath || pathname === `${tenantPath}/`;
+  const isServices = pathname === `${tenantPath}/services`;
   const isMyBooking = pathname === `${tenantPath}/my-booking`;
 
   return (
     <nav className="mobile-nav" aria-label="Нижняя навигация">
       <section className="mobile-nav-content">
         <Link className="mobile-nav-link" to={`${tenantPath}/`} aria-current={isHome ? 'page' : undefined}><House weight="regular" aria-hidden="true" /><small>Главная</small></Link>
-        <Link className="mobile-nav-link" to={`${tenantPath}/#services`} aria-current={isServices ? 'location' : undefined}><CarProfile weight="regular" aria-hidden="true" /><small>Услуги</small></Link>
+        <Link className="mobile-nav-link" to={`${tenantPath}/services`} aria-current={isServices ? 'page' : undefined}><CarProfile weight="regular" aria-hidden="true" /><small>Услуги</small></Link>
         <Link className="mobile-nav-link" to={`${tenantPath}/my-booking`} aria-current={isMyBooking ? 'page' : undefined}><CalendarDots weight="regular" aria-hidden="true" /><small>Моя запись</small></Link>
       </section>
     </nav>
@@ -164,6 +164,7 @@ export default function App() {
           <Route path="/" element={<Navigate replace to="/s/graphite-detailing/" />} />
           <Route path="/s/:slug" element={<TenantShell />}>
             <Route index element={<StorefrontPage />} />
+            <Route path="services" element={<ServicesPage />} />
             <Route path="booking" element={<BookingPage />} />
             <Route path="my-booking" element={<MyBookingPage />} />
             <Route path="reservation/:appointmentId" element={<AppointmentPage />} />

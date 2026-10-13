@@ -1,0 +1,251 @@
+/**
+ * Premium automotive homepage (Phase 3).
+ *
+ * New `.sf-*` namespace only. Gallery / approach / visit sections keep
+ * their `app.css` classes untouched, and nothing here targets `.booking-*`
+ * or `.drawer-*`, so the protected popup is unaffected.
+ */
+
+.sf-hero {
+  display: grid;
+  gap: var(--spacing-4);
+  min-width: 0;
+}
+
+.sf-hero-media {
+  position: relative;
+  min-width: 0;
+  min-height: 17rem;
+  aspect-ratio: 8 / 7;
+  max-height: 22rem;
+  overflow: clip;
+  border: var(--border-width) solid var(--ds-border-subtle);
+  border-radius: calc(var(--radius-container) * 1.5);
+  background: var(--ds-surface);
+  isolation: isolate;
+}
+
+.sf-hero-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 55%;
+}
+
+.sf-hero-shade {
+  position: absolute;
+  z-index: 1;
+  inset: auto 0 0;
+  height: 64%;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, #050608 92%, transparent));
+  pointer-events: none;
+}
+
+.sf-hero-status {
+  position: absolute;
+  z-index: 3;
+  inset-block-start: var(--spacing-3);
+  inset-inline-start: var(--spacing-3);
+  margin: 0;
+}
+
+.sf-hero-titles {
+  position: absolute;
+  z-index: 2;
+  inset-inline: var(--spacing-4);
+  inset-block-end: calc(3.5rem + var(--spacing-3) + var(--spacing-3));
+  display: grid;
+  gap: var(--spacing-1);
+  min-width: 0;
+}
+
+.sf-hero-titles .eyebrow {
+  color: rgb(245 246 248 / 0.72);
+}
+
+.sf-hero-title {
+  min-width: 0;
+  margin: 0;
+  color: #ffffff;
+  font-size: var(--ds-title-size);
+  font-weight: var(--ds-title-weight);
+  line-height: var(--ds-title-leading);
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 12px rgb(0 0 0 / 0.55);
+}
+
+.sf-hero-cta {
+  position: absolute;
+  z-index: 3;
+  inset-inline: var(--spacing-3);
+  inset-block-end: var(--spacing-3);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  min-width: 0;
+  min-height: 3.5rem;
+  padding: var(--spacing-3) var(--spacing-4);
+  border: var(--border-width) solid rgb(245 246 248 / 0.2);
+  border-radius: var(--radius-full);
+  background: var(--ds-glass-bg-strong);
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 650;
+  text-shadow: 0 1px 8px rgb(0 0 0 / 0.45);
+  backdrop-filter: blur(var(--ds-glass-blur-strong)) saturate(var(--ds-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur-strong)) saturate(var(--ds-glass-saturate));
+  box-shadow:
+    inset 0 1px 0 rgb(245 246 248 / 0.12),
+    0 var(--spacing-2) var(--spacing-5) rgb(0 0 0 / 0.45);
+}
+
+.sf-hero-cta svg {
+  width: var(--ds-icon-md);
+  height: var(--ds-icon-md);
+  margin-inline-start: auto;
+  flex: 0 0 auto;
+}
+
+.sf-hero-cta:active {
+  transform: scale(0.99);
+}
+
+.sf-hero-cta:focus-visible {
+  outline: 2px solid var(--ds-focus-ring);
+  outline-offset: 2px;
+}
+
+.sf-identity {
+  display: grid;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+.sf-tagline {
+  max-width: 32rem;
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+/* Compact studio stats: small adjacent tiles from real tenant data. */
+.sf-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+.sf-stats[data-count='2'] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sf-stat {
+  display: grid;
+  align-content: center;
+  gap: var(--spacing-0-5);
+  min-width: 0;
+  min-height: 4rem;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: var(--border-width) solid var(--ds-border-subtle);
+  border-radius: var(--radius-container);
+  background: var(--ds-surface);
+}
+
+.sf-stat strong {
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.sf-stat small {
+  min-width: 0;
+  color: var(--ds-text-2);
+  font-size: 0.72rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+/* Single compact service entry: one tappable row to the full catalog. */
+.sf-entry-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--spacing-3);
+  min-width: 0;
+  min-height: 4.25rem;
+  padding: var(--spacing-3) var(--spacing-4);
+  border: var(--border-width) solid var(--ds-border-subtle);
+  border-radius: var(--radius-container);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+}
+
+.sf-entry-row:active {
+  transform: scale(0.995);
+  border-color: var(--ds-accent-border);
+}
+
+.sf-entry-row:focus-visible {
+  outline: 2px solid var(--ds-focus-ring);
+  outline-offset: 2px;
+}
+
+.sf-entry-copy {
+  display: grid;
+  gap: var(--spacing-0-5);
+  min-width: 0;
+}
+
+.sf-entry-copy strong {
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.sf-entry-copy small {
+  min-width: 0;
+  color: var(--ds-text-2);
+  font-size: 0.85rem;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.sf-entry-arrow {
+  width: var(--ds-icon-md);
+  height: var(--ds-icon-md);
+  flex: 0 0 auto;
+  color: var(--ds-muted);
+}
+
+.sf-entry-row:active .sf-entry-arrow {
+  color: var(--ds-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sf-hero-cta,
+  .sf-entry-row {
+    transition: none;
+  }
+
+  .sf-hero-cta:active,
+  .sf-entry-row:active {
+    transform: none;
+  }
+}
+
+@media (min-width: 44rem) {
+  .sf-hero-media {
+    aspect-ratio: 16 / 10;
+    min-height: 26rem;
+    max-height: 32rem;
+  }
+}

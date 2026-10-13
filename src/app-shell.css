@@ -1,0 +1,136 @@
+/**
+ * Customer-facing mobile application shell (Phase 2).
+ *
+ * Additive overrides over `app.css` for the shell chrome only:
+ * `.app-shell`, `.topbar` (+ brand), `.page-content` rhythm,
+ * `.mobile-nav*`, `.footer-row`.
+ *
+ * Strictly out of scope: `.booking-*`, `.drawer-*`, Astryx component
+ * internals, and booking animation tokens. This file contains zero
+ * `.booking` / `.drawer` selectors so the protected popup keeps its exact
+ * appearance and behavior.
+ */
+
+/* Shell: horizontal rhythm from design tokens, guaranteed clearance above
+   the floating navigation, no horizontal overflow. `clip` (not `hidden`)
+   preserves `position: sticky` descendants. */
+.app-shell {
+  padding-inline: var(--ds-page-pad);
+  padding-bottom: calc(var(--ds-nav-height) + var(--spacing-6) + env(safe-area-inset-bottom));
+  overflow-x: clip;
+}
+
+/* Compact sticky app header: brand + tenant nav stay reachable while the
+   page scrolls. Glass keeps it integrated with the dark interface. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  min-height: 3.5rem;
+  margin-inline: calc(var(--ds-page-pad) * -1);
+  padding-inline: var(--ds-page-pad);
+  padding-top: env(safe-area-inset-top);
+  background: color-mix(in srgb, var(--color-background-body) 82%, transparent);
+  backdrop-filter: blur(var(--ds-glass-blur)) saturate(var(--ds-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur)) saturate(var(--ds-glass-saturate));
+}
+
+.brand-mark {
+  width: 2rem;
+  height: 2rem;
+  border: var(--border-width) solid var(--ds-border-subtle);
+  border-radius: var(--radius-full);
+}
+
+.brand-copy strong {
+  font-size: 0.9rem;
+}
+
+.brand-copy small {
+  font-size: 0.7rem;
+}
+
+/* Content rhythm: token-driven section spacing, anchor offset clears the
+   sticky header, narrow widths can never overflow horizontally. */
+.page-content {
+  gap: var(--ds-section-gap);
+  min-width: 0;
+  overflow-x: clip;
+}
+
+.page-content > section {
+  min-width: 0;
+  scroll-margin-top: calc(3.5rem + var(--spacing-4));
+}
+
+/* Floating navigation: compact dark-translucent pill, subtle border,
+   restrained blue illumination on the active destination. Fixed position
+   is unchanged, so it stays stable while the page scrolls; the shell
+   bottom padding above guarantees it never covers final content. */
+.mobile-nav {
+  background: var(--ds-glass-bg-strong);
+  border-color: var(--ds-glass-border);
+  backdrop-filter: blur(var(--ds-glass-blur-strong)) saturate(var(--ds-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur-strong)) saturate(var(--ds-glass-saturate));
+  box-shadow:
+    inset 0 1px 0 rgb(245 246 248 / 0.08),
+    0 var(--spacing-2) var(--spacing-6) rgb(0 0 0 / 0.5),
+    0 0 24px rgb(70 144 255 / 0.1);
+}
+
+.mobile-nav-link {
+  min-height: 3.7rem;
+  font-size: var(--ds-nav-label-size);
+}
+
+.mobile-nav-link svg {
+  width: var(--ds-icon-md);
+  height: var(--ds-icon-md);
+}
+
+.mobile-nav-link small {
+  font-size: var(--ds-nav-label-size);
+  font-weight: var(--ds-nav-label-weight);
+  line-height: 1.15;
+}
+
+.mobile-nav-link[aria-current='page'],
+.mobile-nav-link[aria-current='location'] {
+  background: var(--ds-selected-bg);
+  box-shadow:
+    inset 0 1px 0 rgb(245 246 248 / 0.1),
+    inset 0 0 0 var(--border-width) var(--ds-accent-border),
+    0 0 12px rgb(70 144 255 / 0.18);
+}
+
+.mobile-nav-link:focus-visible {
+  outline: 2px solid var(--ds-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Footer sits above the reserved clearance; no extra nav overlap. */
+.footer-row {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-nav-link {
+    transition: none;
+  }
+}
+
+@media (min-width: 44rem) {
+  /* Desktop/tablet: the floating pill stays mobile-only and is never
+     stretched into a desktop footer; the topbar carries navigation. */
+  .app-shell {
+    padding-bottom: var(--spacing-6);
+  }
+
+  .topbar {
+    min-height: 4rem;
+  }
+
+  .page-content > section {
+    scroll-margin-top: calc(4rem + var(--spacing-4));
+  }
+}

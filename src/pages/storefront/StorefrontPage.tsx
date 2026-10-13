@@ -12,22 +12,24 @@ import {InstallAction} from '@/components/install-action';
 const dayNames = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
 const shortDayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
-function durationLabel(minutes: number) {
-  if (minutes >= 1440) {
-    const days = Math.floor(minutes / 1440);
-    const remaining = minutes % 1440;
-    return remaining ? `${days} дн. ${Math.floor(remaining / 60)} ч.` : `${days} дн.`;
-  }
-  const hours = Math.floor(minutes / 60);
-  const remaining = minutes % 60;
-  return remaining ? `${hours} ч. ${remaining} мин.` : `${hours} ч.`;
-}
-
-function countLabel(count: number, one: string, few: string, many: string) {
+function plural(count: number, one: string, few: string, many: string) {
   const hundreds = count % 100;
   const units = count % 10;
-  const form = hundreds >= 11 && hundreds <= 14 ? many : units === 1 ? one : units >= 2 && units <= 4 ? few : many;
-  return `${count} ${form}`;
+  if (hundreds >= 11 && hundreds <= 14) return many;
+  if (units === 1) return one;
+  if (units >= 2 && units <= 4) return few;
+  return many;
+}
+
+type ServiceEntry = {cheapestName: string; priceLabel: string} | null;
+
+function serviceEntry(business: BusinessConfig): ServiceEntry {
+  if (!business.services.length) return null;
+  const cheapest = business.services.reduce((best, item) => (item.priceMinor < best.priceMinor ? item : best));
+  return {
+    cheapestName: cheapest.name,
+    priceLabel: cheapest.priceMinor ? `от ${money(cheapest.priceMinor, business.currency, business.locale)}` : 'Бесплатно',
+  };
 }
 
 function toMinutes(hhmm: string) {
@@ -52,52 +54,64 @@ function openingStatus(business: BusinessConfig) {
 export function StorefrontPage() {
   const business = useTenant();
   const bookUrl = `/s/${business.slug}/booking`;
+  const servicesUrl = `/s/${business.slug}/services`;
   const status = openingStatus(business);
   const todayWeekday = Number(formatInTimeZone(new Date(), business.timezone, 'i')) % 7;
   const telHref = `tel:${business.phone.replaceAll(' ', '')}`;
+  const stats = [
+    {value: business.services.length, label: plural(business.services.length, 'услуга', 'услуги', 'услуг')},
+    ...(business.gallery.length ? [{value: business.gallery.length, label: plural(business.gallery.length, 'работа', 'работы', 'работ')}] : []),
+    {value: business.resources.length, label: plural(business.resources.length, 'пост', 'поста', 'постов')},
+  ];
 
   return (
     <section className="page-content storefront-page">
-      <section className="hero-section" data-reveal>
-        <section className="hero-media" aria-label={`Фото студии ${business.name}`}>
-          <img className="hero-photo" src={business.heroImage} alt={`Автомобиль в студии ${business.name}`} loading="eager" onError={(event) => { event.currentTarget.src = business.logoImage; }} />
-          <section className="hero-shade" aria-hidden="true" />
-          <p className="preview-pill hero-status"><span className={status.open ? 'status-dot status-dot-open' : 'status-dot'} aria-hidden="true" />{status.short}</p>
-          <section className="hero-title-block">
-            <p className="eyebrow">{business.city} · детейлинг-студия</p>
-            <Heading className="hero-title" level={1} type="display-2">{business.name}</Heading>
+      <section className="sf-hero" data-reveal>
+        <section className="sf-hero-media" aria-label={`Фото студии ${business.name}`}>
+          <img className="sf-hero-photo" src={business.heroImage} alt={`Автомобиль в студии ${business.name}`} loading="eager" onError={(event) => { event.currentTarget.src = business.logoImage; }} />
+          <section className="sf-hero-shade" aria-hidden="true" />
+          <p className="preview-pill sf-hero-status"><span className={status.open ? 'status-dot status-dot-open' : 'status-dot'} aria-hidden="true" />{status.short}</p>
+          <section className="sf-hero-titles">
+            <p className="eyebrow">{business.city}</p>
+            <Heading className="sf-hero-title" level={1}>{business.name}</Heading>
           </section>
-          <Link className="hero-photo-cta" to={bookUrl} aria-label={`Записаться в ${business.name}`}>Записаться <ArrowRight weight="bold" aria-hidden="true" /></Link>
+          <Link className="sf-hero-cta" to={bookUrl} aria-label={`Записаться в ${business.name}`}>Записаться <ArrowRight weight="bold" aria-hidden="true" /></Link>
         </section>
-        <header className="hero-copy">
-          <Text className="hero-description" color="secondary">{business.tagline}</Text>
-          <Text className="hero-facts" type="supporting">
-            {countLabel(business.services.length, 'услуга', 'услуги', 'услуг')} · {countLabel(business.resources.length, 'пост', 'поста', 'постов')}
-          </Text>
+        <header className="sf-identity">
+          <Text className="sf-tagline" color="secondary">{business.tagline}</Text>
         </header>
+        <section className="sf-stats" data-count={stats.length} aria-label="О студии в цифрах">
+          {stats.map((stat) => (
+            <section className="sf-stat" key={stat.label}>
+              <strong>{stat.value}</strong>
+              <small>{stat.label}</small>
+            </section>
+          ))}
+        </section>
       </section>
 
       <section className="content-section" id="services" data-liquid-ignore data-reveal>
         <header className="section-heading">
-          <section><p className="eyebrow">Прайс</p><Heading level={2}>Услуги и стоимость</Heading></section>
-          <Text color="secondary">Продолжительность и свободное время видны до подтверждения.</Text>
+          <section><p className="eyebrow">Услуги</p><Heading level={2}>Направления и цены</Heading></section>
+          <Text color="secondary">Полный каталог с точной стоимостью — внутри записи.</Text>
         </header>
-        <section className="service-list">
-          {business.services.map((service) => (
-            <Link className="service-card" key={service.slug} to={`${bookUrl}?service=${encodeURIComponent(service.slug)}`}>
-              <section className="service-copy">
-                <section className="service-title">
-                  <Heading level={3}>{service.name}</Heading>
-                  <strong className="service-price">{service.priceMinor ? money(service.priceMinor, business.currency, business.locale) : 'Бесплатно'}</strong>
-                </section>
-                <Text color="secondary">{service.description}</Text>
-                <section className="service-meta"><small>{service.category}</small><small>{durationLabel(service.durationMinutes)}</small></section>
+        {(() => {
+          const entry = serviceEntry(business);
+          if (!entry) return null;
+          return (
+            <Link
+              className="sf-entry-row"
+              to={servicesUrl}
+              aria-label={`Услуги студии, ${entry.cheapestName}, ${entry.priceLabel}, открыть каталог`}
+            >
+              <section className="sf-entry-copy">
+                <strong>Услуги студии</strong>
+                <small>{entry.cheapestName} · {entry.priceLabel}</small>
               </section>
-              <ArrowRight className="service-arrow" weight="bold" aria-hidden="true" />
+              <ArrowRight className="sf-entry-arrow" weight="bold" aria-hidden="true" />
             </Link>
-          ))}
-        </section>
-        <Button className="full-width" label="Смотреть свободное время" variant="secondary" href={bookUrl} />
+          );
+        })()}
       </section>
 
       <section className="content-section" data-liquid-ignore data-reveal>

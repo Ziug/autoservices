@@ -1,0 +1,128 @@
+/**
+ * Shared premium-automotive design tokens (Phase 1).
+ *
+ * Additive-only `--ds-*` namespace. Nothing here overrides the Astryx
+ * `--color-*` / `--spacing-*` / `--radius-*` / `--duration-*` tokens or any
+ * `.booking-*` / `.drawer-*` / `.app-shell` selectors, so the protected
+ * four-step booking popup keeps its exact appearance and behavior.
+ * Future storefront / navigation phases should consume these tokens instead
+ * of introducing new hex values or arbitrary spacing.
+ */
+
+:root {
+  /* Page + surface hierarchy (solid dark surfaces; glass reserved, see below). */
+  --ds-page: #050608;
+  --ds-surface: #0c0e12;
+  --ds-surface-2: #12151a;
+  --ds-elevated: #191d24;
+
+  /* Primary accent. Matches the tenant default (#4690FF); per-tenant accent
+     continues to flow through TenantTheme `--color-accent`. */
+  --ds-accent: #4690ff;
+  --ds-accent-soft: rgb(70 144 255 / 0.14);
+  --ds-accent-border: rgb(70 144 255 / 0.45);
+  /* Dark ink on accent fill meets 4.5:1 for button labels (white on #4690FF
+     does not). Body copy never sits directly on the accent. */
+  --ds-accent-ink: #0a1420;
+
+  /* Text hierarchy. */
+  --ds-text: #f5f6f8;
+  --ds-text-2: #a1a7b2;
+  --ds-muted: #747c88;
+
+  /* Borders. */
+  --ds-border-subtle: #272c35;
+  --ds-border-strong: rgb(245 246 248 / 0.16);
+
+  /* States. */
+  --ds-focus-ring: var(--ds-accent);
+  --ds-selected-bg: var(--ds-accent-soft);
+  --ds-selected-border: var(--ds-accent);
+  --ds-disabled-opacity: 0.45;
+
+  /* Typography roles. Compact app-like scale: page titles stay well below
+     the current marketing hero size; all roles reuse Astryx type tokens. */
+  --ds-title-size: clamp(1.6rem, 5.2vw, 2.1rem);
+  --ds-title-leading: 1.12;
+  --ds-title-weight: 650;
+  --ds-section-size: clamp(1.25rem, 4vw, 1.5rem);
+  --ds-section-leading: 1.2;
+  --ds-section-weight: 650;
+  --ds-card-title-size: var(--font-size-lg);
+  --ds-card-title-weight: var(--font-weight-semibold);
+  --ds-card-title-leading: 1.35;
+  --ds-body-size: var(--font-size-base);
+  --ds-body-leading: 1.55;
+  --ds-supporting-size: var(--font-size-sm);
+  --ds-supporting-leading: 1.5;
+  --ds-price-size: var(--font-size-lg);
+  --ds-price-weight: var(--font-weight-bold);
+  --ds-nav-label-size: var(--font-size-xs);
+  --ds-nav-label-weight: var(--font-weight-medium);
+
+  /* Spacing + shapes. Aliases over Astryx spacing/radius/size tokens so
+     future layout work stays on the rhythm instead of arbitrary margins. */
+  --ds-page-pad: var(--spacing-4);
+  --ds-section-gap: var(--spacing-8);
+  --ds-card-gap: var(--spacing-3);
+  --ds-card-pad: var(--spacing-4);
+  --ds-btn-height: 3rem;
+  --ds-btn-height-sm: 2.5rem;
+  --ds-radius-card: var(--radius-container);
+  --ds-radius-control: var(--radius-element);
+  --ds-radius-pill: var(--radius-full);
+  --ds-icon-sm: 1rem;
+  --ds-icon-md: 1.25rem;
+  --ds-icon-lg: 1.5rem;
+
+  /* Mobile navigation dimensions (match current shell rhythm). */
+  --ds-nav-height: 4.25rem;
+  --ds-nav-radius: var(--radius-full);
+  --ds-nav-max-width: 40rem;
+
+  /* Glass treatments. Strong glass is reserved for exactly two surfaces:
+     the hero booking action and the floating mobile navigation. */
+  --ds-glass-blur: 16px;
+  --ds-glass-blur-strong: 24px;
+  --ds-glass-saturate: 150%;
+  --ds-glass-bg: rgb(18 21 26 / 0.72);
+  --ds-glass-bg-strong: rgb(18 21 26 / 0.62);
+  --ds-glass-border: rgb(245 246 248 / 0.14);
+
+  /* Motion. Reuses Astryx durations; entrance stays subtle. */
+  --ds-motion-fast: var(--duration-fast);
+  --ds-motion-medium: var(--duration-medium);
+  --ds-motion-ease: var(--ease-out);
+}
+
+@media (min-width: 44rem) {
+  :root {
+    --ds-page-pad: var(--spacing-6);
+    --ds-section-gap: var(--spacing-12);
+  }
+}
+
+/* Standard glass card treatment (secondary surfaces). New class name only;
+   never applied to booking or drawer elements. */
+.ds-glass {
+  background: var(--ds-glass-bg);
+  border: var(--border-width) solid var(--ds-glass-border);
+  backdrop-filter: blur(var(--ds-glass-blur)) saturate(var(--ds-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur)) saturate(var(--ds-glass-saturate));
+}
+
+/* Strongest glass treatment. Reserved for the hero booking action and the
+   floating mobile navigation. Do not apply to generic cards. */
+.ds-glass-strong {
+  background: var(--ds-glass-bg-strong);
+  border: var(--border-width) solid var(--ds-glass-border);
+  backdrop-filter: blur(var(--ds-glass-blur-strong)) saturate(var(--ds-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur-strong)) saturate(var(--ds-glass-saturate));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ds-motion-fast: 0.01ms;
+    --ds-motion-medium: 0.01ms;
+  }
+}
