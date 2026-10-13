@@ -24,14 +24,20 @@
  *   archive { tenantId, reason?, requestId } -> { archived: true }
  *   unarchive { tenantId, requestId } -> { unarchived: true }
  *   audit-list { tenantId?, action?, limit?, offset? } -> { audit, total }
- *   create-tenant { name, slug, timezone?, currency?, requestId } -> { created, tenant }
+ *   create-tenant { name, slug, timezone?, currency?, template?, requestId } -> { created, tenant }
+ *     template 'detailing' (default) seeds 4 services + compatible resources +
+ *     hours + gallery/cards/prompts; 'empty' creates a bare draft shell.
+ *     Servers that predate the template param reject it with
+ *     "Invalid request: Unrecognized key" — the wrapper below retries once
+ *     without the key (same requestId; the first attempt never reaches the DB).
  *   validate-tenant { tenantId } -> { tenantId, errors[], warnings[], info[] }
  *   publish-tenant { tenantId, requestId } -> { published } | 409 { error, errors[] }
  *   activate-tenant { tenantId, requestId } -> { activated } | 409 { error, errors[] }
  *   export-tenant { tenantId } | { slug } -> business.json-shaped object
  *   update-tenant { tenantId, profile } -> { saved }
  *   save-service { tenantId, service } -> { service }
- *   save-resource { tenantId, resource } -> { resource }
+ *   save-resource { tenantId, resource (...+ optional location≤120) } -> { resource }
+ *     Same unrecognized-key retry as create-tenant applies to `location`.
  *   save-date-override { tenantId, override } -> { override }
  *
  * Mutations are idempotent via client-generated `requestId` (createClientId);
@@ -39,6 +45,7 @@
  */
 import {supabase} from '@/lib/supabase';
 import {createClientId} from '@/lib/id';
+import {suggestSlug} from '@/lib/suggest-slug';
 
 export type AdminTenantVisibility = 'draft' | 'preview' | 'live' | 'suspended' | 'archived';
 export type AdminTenantFilter = 'all' | AdminTenantVisibility;
@@ -128,6 +135,8 @@ export interface AdminResourceRow extends Record<string, unknown> {
   slug: string;
   name: string;
   resourceType: string;
+  /** Physical location of the post (e.g. 'Пост № 2'). Optional; '' when unset or on older servers. */
+  location: string;
   active: boolean;
 }
 
@@ -429,6 +438,7 @@ export async function listResources(tenantId: string): Promise<AdminResourceRow[
     slug: str(row.slug),
     name: str(row.name, '—'),
     resourceType: str(row.resource_type),
+    location: str(row.location),
     active: Boolean(row.active ?? true),
   }));
 }
@@ -507,14 +517,45 @@ export async function unarchiveTenant(tenantId: string, requestId: string) {
   return invokeAdmin<{unarchived?: boolean; deduped?: boolean}>('unarchive', {tenantId, requestId});
 }
 
-export async function createTenant(input: {name: string; slug: string; timezone: string; currency: string; requestId: string}) {
-  return invokeAdmin<{created?: boolean; deduped?: boolean; tenant?: Record<string, unknown>}>('create-tenant', {
+export type StudioTemplate = 'detailing' | 'empty';
+
+/** Contents seeded by the 'detailing' starter template (server contract). Shown on the create page so the choice is informed. */
+export const DETAILING_TEMPLATE_CONTENTS = [
+  '4 услуги с ценами и длительностью',
+  'Совместимые рабочие посты',
+  'Еженедельный график работы',
+  'Фото, карточки и подсказки помощника',
+] as const;
+
+/** True when the server rejected an optional key it does not know yet (strict zod schema on older backends). */
+function isUnrecognizedKeyError(error: unknown): boolean {
+  if (!(error instanceof AdminApiError)) return false;
+  return /unrecognized key/i.test(error.message);
+}
+
+export async function createTenant(input: {name: string; slug: string; timezone: string; currency: string; requestId: string; template?: StudioTemplate}) {
+  const body: Record<string, unknown> = {
     name: input.name.trim(),
     slug: input.slug.trim().toLowerCase(),
     timezone: input.timezone,
     currency: input.currency.toUpperCase(),
     requestId: input.requestId,
-  });
+  };
+  // Always send explicitly: 'detailing' is the server default, but being
+  // explicit keeps create-page behaviour independent of server defaults.
+  if (input.template) body.template = input.template;
+  try {
+    return await invokeAdmin<{created?: boolean; deduped?: boolean; tenant?: Record<string, unknown>}>('create-tenant', body);
+  } catch (error) {
+    // Older servers predate `template`: retry once without it (same
+    // requestId — the rejected attempt fails zod parsing before any insert).
+    if (input.template && isUnrecognizedKeyError(error)) {
+      const {template: _dropped, ...legacy} = body;
+      void _dropped;
+      return invokeAdmin<{created?: boolean; deduped?: boolean; tenant?: Record<string, unknown>}>('create-tenant', legacy);
+    }
+    throw error;
+  }
 }
 
 export async function validateTenant(tenantId: string): Promise<ValidationReport & {tenantId: string}> {
@@ -546,7 +587,27 @@ export async function saveAdminService(tenantId: string, service: Record<string,
 }
 
 export async function saveAdminResource(tenantId: string, resource: Record<string, unknown>) {
-  return invokeAdmin<{resource?: Record<string, unknown>}>('save-resource', {tenantId, resource});
+  try {
+    return await invokeAdmin<{resource?: Record<string, unknown>}>('save-resource', {tenantId, resource});
+  } catch (error) {
+    // Older servers predate `location`: retry once without it. An empty
+    // location is dropped silently; a non-empty one is reported so the data
+    // loss is visible instead of silent.
+    if ('location' in resource && isUnrecognizedKeyError(error)) {
+      const {location: dropped, ...legacy} = resource;
+      const retried = await invokeAdmin<{resource?: Record<string, unknown>}>('save-resource', {tenantId, resource: legacy});
+      if (typeof dropped === 'string' && dropped.trim()) {
+        // The post IS saved; only the new field was dropped. The body marker
+        // lets the page show "saved with a warning" instead of a failure.
+        throw new AdminApiError(
+          'Пост сохранён, но место не сохранилось: сервер пока не знает это поле.',
+          {locationDropped: true, saved: retried},
+        );
+      }
+      return retried;
+    }
+    throw error;
+  }
 }
 
 export async function saveAdminDateOverride(tenantId: string, override: Record<string, unknown>) {
@@ -573,4 +634,81 @@ export async function listAdminOverrides(tenantId: string): Promise<AdminDateOve
     closesAt: strOrNull(row.closes_at),
     label: str(row.label),
   }));
+}
+
+/** Tabs of the studio setup workspace. Used to link validation findings to their fix location. */
+export type AdminSetupTab = 'overview' | 'branding' | 'services' | 'resources' | 'publication';
+
+/**
+ * Same compatibility rule as the server (and scripts/tenants.mjs validate):
+ * a post serves a service when the service lists 'any', the post is 'any',
+ * or the type sets overlap.
+ */
+export function isCompatibleResource(serviceTypes: string[], resourceType: string): boolean {
+  const types = serviceTypes.map((value) => value.trim()).filter(Boolean);
+  if (types.length === 0) return false;
+  return types.includes('any') || resourceType === 'any' || types.includes(resourceType);
+}
+
+/** Active posts that can serve a service with the given resource types. */
+export function compatibleResources(serviceTypes: string[], resources: AdminResourceRow[]): AdminResourceRow[] {
+  return resources.filter((resource) => resource.active && isCompatibleResource(serviceTypes, resource.resourceType));
+}
+
+/**
+ * Suggest resource types for a service form: when exactly one active post is
+ * compatible, its type is the obvious choice; otherwise an 'any' post (when
+ * present) means the default 'any' just works. Returns null when the operator
+ * must choose or create a post.
+ */
+export function suggestServiceResourceTypes(serviceTypes: string[], resources: AdminResourceRow[]): {compatible: AdminResourceRow[]; suggestion: string[] | null} {
+  const compatible = compatibleResources(serviceTypes, resources);
+  if (compatible.length === 1) return {compatible, suggestion: [compatible[0].resourceType || 'any']};
+  if (compatible.some((resource) => resource.resourceType === 'any')) return {compatible, suggestion: ['any']};
+  return {compatible, suggestion: null};
+}
+
+export interface DerivedResourceDraft {
+  name: string;
+  slug: string;
+  resourceType: string;
+}
+
+/**
+ * One-click draft for the "no compatible post" dead end: derives the post
+ * type from the service (first concrete type, else 'any') and a unique slug.
+ * The caller still saves via saveAdminResource — server validation stays
+ * authoritative.
+ */
+export function deriveResourceDraft(serviceTypes: string[], existingSlugs: string[]): DerivedResourceDraft {
+  const types = serviceTypes.map((value) => value.trim()).filter(Boolean);
+  const resourceType = types.find((value) => value !== 'any') ?? 'any';
+  const name = resourceType === 'any' ? 'Универсальный пост' : `Пост ${resourceType}`;
+  const taken = new Set(existingSlugs.map((value) => value.trim().toLowerCase()));
+  let slug = suggestSlug(name) || 'post';
+  for (let attempt = 2; taken.has(slug); attempt += 1) slug = `${suggestSlug(name) || 'post'}-${attempt}`;
+  return {name, slug, resourceType};
+}
+
+/**
+ * Map a validate-tenant finding code to the setup tab that fixes it.
+ * Codes are the part before ": " in server "code: message" strings.
+ */
+export function validationFindingTarget(code: string): AdminSetupTab {
+  if (/^(services-missing|service-)/.test(code)) return 'services';
+  if (/^(demo-live-conflict|contact-placeholder)/.test(code)) return code === 'demo-live-conflict' ? 'publication' : 'branding';
+  if (/^(tenant-archived|status-|counts|demo|slug-)/.test(code)) return 'overview';
+  if (
+    /^(name-missing|timezone-|currency-|booking-step-|cancellation-|opening-hours-|tagline|description|city|address|phone|map_url|hero_image_url|logo_url|gallery|info-cards|assistant-prompts)/.test(code)
+  ) return 'branding';
+  return 'overview';
+}
+
+/** Human label for a setup tab (used by fix-links). */
+export function adminSetupTabLabel(tab: AdminSetupTab): string {
+  if (tab === 'branding') return 'Оформление и профиль';
+  if (tab === 'services') return 'Услуги';
+  if (tab === 'resources') return 'Ресурсы и часы';
+  if (tab === 'publication') return 'Публикация';
+  return 'Обзор';
 }

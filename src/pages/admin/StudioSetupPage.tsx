@@ -16,6 +16,9 @@ import {adminUrl} from '@/lib/admin-config';
 import {
   activateTenant,
   adminApiErrorReport,
+  adminSetupTabLabel,
+  compatibleResources,
+  deriveResourceDraft,
   exportTenant,
   getTenantDetail,
   listAdminOverrides,
@@ -26,19 +29,23 @@ import {
   saveAdminDateOverride,
   saveAdminResource,
   saveAdminService,
+  suggestServiceResourceTypes,
   updateAdminTenantProfile,
   validateTenant,
+  validationFindingTarget,
+  type AdminApiError,
   type AdminDateOverrideRow,
   type AdminResourceRow,
   type AdminServiceRow,
+  type AdminSetupTab,
   type AdminTenantDetail,
+  type ValidationItem,
   type ValidationReport,
 } from '@/lib/admin-api';
+import {normalizeSlugInput, SLUG_FORMAT_HINT, suggestSlug, validateSlug} from '@/lib/suggest-slug';
 import {money} from '@/lib/format';
 
-type SetupTab = 'overview' | 'branding' | 'services' | 'resources' | 'publication';
-
-const TABS: Array<{value: SetupTab; label: string}> = [
+const TABS: Array<{value: AdminSetupTab; label: string}> = [
   {value: 'overview', label: 'Обзор'},
   {value: 'branding', label: 'Оформление и профиль'},
   {value: 'services', label: 'Услуги'},
@@ -127,17 +134,25 @@ function visibilityLabel(visibility: string): string {
   return 'Черновик';
 }
 
-function FindingList({title, items, tone}: {title: string; items: Array<{code: string; message: string}>; tone: 'error' | 'warning' | 'info'}) {
+type Notice = {kind: 'success' | 'error' | 'warning'; text: string};
+
+function FindingList({title, items, tone, onFix}: {title: string; items: ValidationItem[]; tone: 'error' | 'warning' | 'info'; onFix?: (tab: AdminSetupTab) => void}) {
   if (items.length === 0) return null;
   return (
     <section className="admin-findings" data-tone={tone} aria-label={title}>
       <Heading level={3}>{title} ({items.length})</Heading>
       <ul className="admin-findings-list">
-        {items.map((item) => (
-          <li key={item.code + item.message}>
-            <Text type="supporting"><strong>{item.code}</strong> — {item.message}</Text>
-          </li>
-        ))}
+        {items.map((item) => {
+          const target = validationFindingTarget(item.code);
+          return (
+            <li key={item.code + item.message}>
+              <Text type="supporting"><strong>{item.code}</strong> — {item.message}</Text>
+              {onFix && tone === 'error' ? (
+                <Button label={`Исправить: ${adminSetupTabLabel(target)}`} size="sm" variant="ghost" onClick={() => onFix(target)} />
+              ) : null}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
@@ -158,11 +173,14 @@ function serviceEditColumns(onEdit: (row: AdminServiceRow) => void): Array<Table
   ];
 }
 
-const RESOURCE_COLUMNS: Array<TableColumn<AdminResourceRow>> = [
-  {key: 'name', header: 'Пост', width: proportional(1, {minWidth: 120})},
-  {key: 'resourceType', header: 'Тип', width: proportional(1, {minWidth: 90})},
-  {key: 'active', header: 'Статус', width: proportional(1, {minWidth: 90}), renderCell: (row) => <Text type="supporting">{row.active ? 'Активен' : 'Отключён'}</Text>},
-];
+function resourceTableColumns(): Array<TableColumn<AdminResourceRow>> {
+  return [
+    {key: 'name', header: 'Пост', width: proportional(1, {minWidth: 120})},
+    {key: 'resourceType', header: 'Тип', width: proportional(1, {minWidth: 90})},
+    {key: 'location', header: 'Место', width: proportional(1, {minWidth: 100}), renderCell: (row) => <Text type="supporting">{row.location || '—'}</Text>},
+    {key: 'active', header: 'Статус', width: proportional(1, {minWidth: 90}), renderCell: (row) => <Text type="supporting">{row.active ? 'Активен' : 'Отключён'}</Text>},
+  ];
+}
 
 const OVERRIDE_COLUMNS: Array<TableColumn<AdminDateOverrideRow>> = [
   {key: 'localDate', header: 'Дата', width: proportional(1, {minWidth: 100})},
@@ -170,11 +188,46 @@ const OVERRIDE_COLUMNS: Array<TableColumn<AdminDateOverrideRow>> = [
   {key: 'label', header: 'Подпись', width: proportional(1, {minWidth: 120}), renderCell: (row) => <Text type="supporting">{row.label || '—'}</Text>},
 ];
 
+type SetupStep = {id: string; title: string; required: boolean; done: boolean; hint: string; tab: AdminSetupTab};
+
+const STEP_COLUMNS: Array<TableColumn<SetupStep>> = [
+  {
+    key: 'title',
+    header: 'Шаг',
+    width: proportional(2, {minWidth: 160}),
+    renderCell: (row) => (
+      <Text type="supporting"><strong>{row.title}</strong> {row.required ? '(обязательно)' : '(необязательно)'}</Text>
+    ),
+  },
+  {
+    key: 'id',
+    header: 'Готовность',
+    width: proportional(2, {minWidth: 160}),
+    renderCell: (row) => (
+      <Text type="supporting">
+        {row.done ? <CheckCircle aria-hidden="true" /> : <WarningCircle aria-hidden="true" />} {row.hint}
+      </Text>
+    ),
+  },
+];
+
+function setupStepColumns(onOpen: (tab: AdminSetupTab) => void): Array<TableColumn<SetupStep>> {
+  return [
+    ...STEP_COLUMNS,
+    {
+      key: 'tab',
+      header: '',
+      width: proportional(1, {minWidth: 110}),
+      renderCell: (row) => (row.done ? <Text type="supporting">—</Text> : <Button label="Открыть" size="sm" variant="ghost" onClick={() => onOpen(row.tab)} />),
+    },
+  ];
+}
+
 export function StudioSetupPage() {
   const {tenantId = ''} = useParams();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<SetupTab>('overview');
-  const [notice, setNotice] = useState<{kind: 'success' | 'error'; text: string} | null>(null);
+  const [tab, setTab] = useState<AdminSetupTab>('overview');
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [activateOpen, setActivateOpen] = useState(false);
   const [activateRequestId, setActivateRequestId] = useState('');
 
@@ -191,9 +244,11 @@ export function StudioSetupPage() {
     enabled: Boolean(tenantId),
     staleTime: 15_000,
   });
-  const servicesQuery = useQuery({queryKey: ['admin-tenant-services', tenantId], queryFn: () => listServices(tenantId), enabled: Boolean(tenantId) && tab === 'services', staleTime: 15_000});
-  const resourcesQuery = useQuery({queryKey: ['admin-tenant-resources', tenantId], queryFn: () => listResources(tenantId), enabled: Boolean(tenantId) && tab === 'resources', staleTime: 15_000});
-  const overridesQuery = useQuery({queryKey: ['admin-tenant-overrides', tenantId], queryFn: () => listAdminOverrides(tenantId), enabled: Boolean(tenantId) && tab === 'resources', staleTime: 15_000});
+  // All catalog queries stay enabled on every tab: panels below stay mounted
+  // (hidden, not unmounted), so form drafts survive tab switches.
+  const servicesQuery = useQuery({queryKey: ['admin-tenant-services', tenantId], queryFn: () => listServices(tenantId), enabled: Boolean(tenantId), staleTime: 15_000});
+  const resourcesQuery = useQuery({queryKey: ['admin-tenant-resources', tenantId], queryFn: () => listResources(tenantId), enabled: Boolean(tenantId), staleTime: 15_000});
+  const overridesQuery = useQuery({queryKey: ['admin-tenant-overrides', tenantId], queryFn: () => listAdminOverrides(tenantId), enabled: Boolean(tenantId), staleTime: 15_000});
 
   const refresh = async () => {
     await queryClient.invalidateQueries({queryKey: ['admin-studio-config', tenantId]});
@@ -254,6 +309,63 @@ export function StudioSetupPage() {
   const status = config.status;
   const publicUrl = `/s/${config.slug}/`;
   const bookable = status === 'preview' || status === 'live';
+  const services = servicesQuery.data ?? [];
+  const resources = resourcesQuery.data ?? [];
+  const activeServices = services.filter((service) => service.active);
+  const activeResources = resources.filter((resource) => resource.active);
+  const servicesWithoutPost = activeServices.filter((service) => compatibleResources(service.resourceTypes, resources).length === 0);
+
+  const missingContact = [
+    {field: 'Название', filled: config.name.trim().length >= 2},
+    {field: 'Город', filled: config.city.trim().length > 0},
+    {field: 'Адрес', filled: config.address.trim().length > 0},
+    {field: 'Телефон', filled: config.phone.trim().length > 0},
+  ].filter((item) => !item.filled);
+
+  const steps: SetupStep[] = [
+    {
+      id: 'profile',
+      title: 'Профиль и контакты',
+      required: true,
+      done: missingContact.length === 0,
+      hint: missingContact.length === 0 ? 'Заполнены' : `Не хватает: ${missingContact.map((item) => item.field).join(', ')}`,
+      tab: 'branding',
+    },
+    {
+      id: 'services',
+      title: 'Услуги',
+      required: true,
+      done: activeServices.length > 0 && servicesWithoutPost.length === 0,
+      hint: activeServices.length === 0
+        ? 'Нет активных услуг'
+        : servicesWithoutPost.length > 0
+          ? `Без подходящего поста: ${servicesWithoutPost.length}`
+          : `Активных: ${activeServices.length}`,
+      tab: 'services',
+    },
+    {
+      id: 'resources',
+      title: 'Посты и график',
+      required: true,
+      done: activeResources.length > 0 && config.openingHours.length > 0,
+      hint: activeResources.length === 0
+        ? 'Нет активных постов'
+        : config.openingHours.length === 0
+          ? 'Не заданы дни работы'
+          : `Постов: ${activeResources.length}, дней: ${config.openingHours.length}`,
+      tab: 'resources',
+    },
+    {
+      id: 'content',
+      title: 'Фото и тексты',
+      required: false,
+      done: validation.warnings.length === 0,
+      hint: validation.warnings.length === 0 ? 'Готовы' : `Замечаний: ${validation.warnings.length}`,
+      tab: 'branding',
+    },
+  ];
+
+  const bannerStatus = notice?.kind === 'warning' ? 'warning' : notice?.kind ?? 'info';
 
   const downloadExport = async () => {
     try {
@@ -289,117 +401,84 @@ export function StudioSetupPage() {
         </section>
       </header>
 
-      {notice ? <Banner status={notice.kind} title={notice.kind === 'success' ? 'Готово' : 'Не удалось сохранить'} description={notice.text} isDismissable onDismiss={() => setNotice(null)} /> : null}
+      {notice ? <Banner status={bannerStatus} title={notice.kind === 'error' ? 'Не удалось сохранить' : 'Готово'} description={notice.text} isDismissable onDismiss={() => setNotice(null)} /> : null}
 
       <section className="admin-tab-scroll">
-        <TabList value={tab} onChange={(value) => setTab(value as SetupTab)} hasDivider>
+        <TabList value={tab} onChange={(value) => setTab(value as AdminSetupTab)} hasDivider>
           {TABS.map((item) => (
             <Tab key={item.value} value={item.value} label={item.label} />
           ))}
         </TabList>
       </section>
 
-      {tab === 'overview' ? (
-        <section className="admin-tab-panel" role="tabpanel" aria-label="Обзор настройки">
-          <VStack gap={3}>
-            <Heading level={2}>Готовность</Heading>
-            {validationQuery.isError ? <Banner status="error" title="Не удалось проверить конфигурацию" description={validationQuery.error instanceof Error ? validationQuery.error.message : 'Попробуйте позже.'} /> : null}
-            <HStack gap={2}>
-              <Text type="supporting"><WarningCircle aria-hidden="true" /> Блокирующих ошибок: {validation.errors.length}</Text>
-              <Text type="supporting"><CheckCircle aria-hidden="true" /> Предупреждений: {validation.warnings.length}</Text>
-            </HStack>
-            <section className="admin-definition-list">
-              <DefinitionRow label="Услуги / посты / записи" value={`${detail.counts.services} / ${detail.counts.resources} / ${detail.counts.appointments}`} />
-              <DefinitionRow label="Открытых дней в неделю" value={String(config.openingHours.length)} />
-              <DefinitionRow label="Публичная страница" value={bookable ? publicUrl : 'недоступна до публикации (черновик)'} />
-            </section>
-            <FindingList title="Блокирующие ошибки" items={validation.errors} tone="error" />
-            <FindingList title="Предупреждения" items={validation.warnings} tone="warning" />
-            <FindingList title="Справка" items={validation.info} tone="info" />
-            <HStack gap={2}>
-              <Button label="Перейти к публикации" variant="primary" onClick={() => setTab('publication')} />
-              <Button label="Редактировать услуги" variant="secondary" onClick={() => setTab('services')} />
-            </HStack>
-          </VStack>
-        </section>
-      ) : null}
+      <section className="admin-tab-panel" role="tabpanel" aria-label="Обзор настройки" hidden={tab !== 'overview'}>
+        <VStack gap={3}>
+          <Heading level={2}>Готовность</Heading>
+          <Text type="supporting" color="secondary">Сначала обязательное, потом остальное. Черновики форм не теряются при переходе между вкладками.</Text>
+          {validationQuery.isError ? <Banner status="error" title="Не удалось проверить конфигурацию" description={validationQuery.error instanceof Error ? validationQuery.error.message : 'Попробуйте позже.'} /> : null}
+          <HStack gap={2}>
+            <Text type="supporting"><WarningCircle aria-hidden="true" /> Блокирующих ошибок: {validation.errors.length}</Text>
+            <Text type="supporting"><CheckCircle aria-hidden="true" /> Предупреждений: {validation.warnings.length}</Text>
+          </HStack>
+          <Table<SetupStep> data={steps} columns={setupStepColumns(setTab)} idKey="id" density="compact" hasHover />
+          <section className="admin-definition-list">
+            <DefinitionRow label="Услуги / посты / записи" value={`${detail.counts.services} / ${detail.counts.resources} / ${detail.counts.appointments}`} />
+            <DefinitionRow label="Открытых дней в неделю" value={String(config.openingHours.length)} />
+            <DefinitionRow label="Публичная страница" value={bookable ? publicUrl : 'недоступна до публикации (черновик)'} />
+          </section>
+          <FindingList title="Блокирующие ошибки" items={validation.errors} tone="error" onFix={setTab} />
+          <FindingList title="Предупреждения" items={validation.warnings} tone="warning" />
+          <FindingList title="Справка" items={validation.info} tone="info" />
+        </VStack>
+      </section>
 
-      {tab === 'branding' ? (
-        <BrandingSection
-          key={`branding-${tenantId}-${configQuery.dataUpdatedAt}`}
-          config={config}
-          tenantId={tenantId}
-          onSaved={refresh}
-          onNotice={setNotice}
-        />
-      ) : null}
+      <BrandingSection
+        tenantId={tenantId}
+        config={config}
+        onSaved={refresh}
+        onNotice={setNotice}
+        hidden={tab !== 'branding'}
+      />
 
-      {tab === 'services' ? (
-        <ServicesSection
-          tenantId={tenantId}
-          currency={config.currency}
-          services={servicesQuery.data ?? []}
-          isLoading={servicesQuery.isLoading}
-          isError={servicesQuery.isError}
-          error={servicesQuery.error}
-          onSaved={refresh}
-          onNotice={setNotice}
-        />
-      ) : null}
+      <ServicesSection
+        tenantId={tenantId}
+        currency={config.currency}
+        services={services}
+        resources={resources}
+        catalogReady={!servicesQuery.isLoading && !resourcesQuery.isLoading}
+        isError={servicesQuery.isError || resourcesQuery.isError}
+        error={servicesQuery.error ?? resourcesQuery.error}
+        onSaved={refresh}
+        onNotice={setNotice}
+        hidden={tab !== 'services'}
+      />
 
-      {tab === 'resources' ? (
-        <ResourcesSection
-          tenantId={tenantId}
-          resources={resourcesQuery.data ?? []}
-          overrides={overridesQuery.data ?? []}
-          isLoading={resourcesQuery.isLoading || overridesQuery.isLoading}
-          onSaved={refresh}
-          onNotice={setNotice}
-        />
-      ) : null}
+      <ResourcesSection
+        tenantId={tenantId}
+        resources={resources}
+        overrides={overridesQuery.data ?? []}
+        isLoading={resourcesQuery.isLoading || overridesQuery.isLoading}
+        onSaved={refresh}
+        onNotice={setNotice}
+        hidden={tab !== 'resources'}
+      />
 
-      {tab === 'publication' ? (
-        <section className="admin-tab-panel" role="tabpanel" aria-label="Публикация студии">
-          <VStack gap={3}>
-            <Heading level={2}>Публикация</Heading>
-            <section className="admin-definition-list">
-              <DefinitionRow label="Статус" value={visibilityLabel(detail.tenant.visibility)} />
-              <DefinitionRow label="Страница студии" value={bookable ? publicUrl : 'появится после публикации'} />
-              <DefinitionRow label="Демо-режим" value={config.demo ? 'Включён (уведомления отключены; в live нельзя)' : 'Выключен'} />
-            </section>
-            <FindingList title="Блокирующие ошибки" items={validation.errors} tone="error" />
-            <FindingList title="Предупреждения" items={validation.warnings} tone="warning" />
-            <HStack gap={2}>
-              <Button
-                label="Опубликовать (в предпросмотр)"
-                variant="primary"
-                icon={<RocketLaunch aria-hidden="true" />}
-                isDisabled={status !== 'draft' || lifecycleMutation.isPending}
-                isLoading={lifecycleMutation.isPending}
-                onClick={() => lifecycleMutation.mutate({kind: 'publish', id: newRequestId()})}
-              />
-              <Button
-                label="Активировать (в эфир)"
-                variant="secondary"
-                isDisabled={status !== 'preview' || lifecycleMutation.isPending}
-                isLoading={lifecycleMutation.isPending}
-                onClick={() => { setActivateRequestId(newRequestId()); setActivateOpen(true); }}
-              />
-              <Button label="Скачать business.json" variant="ghost" icon={<DownloadSimple aria-hidden="true" />} onClick={() => void downloadExport()} />
-            </HStack>
-            {status === 'preview' ? (
-              <Text type="supporting" color="secondary">
-                Проверьте страницу {publicUrl} и записи, затем активируйте. Проверка CLI: положите скачанный файл в tenants/{config.slug}/business.json и выполните tenant:verify.
-              </Text>
-            ) : null}
-            {status === 'draft' ? (
-              <Text type="supporting" color="secondary">
-                Публикация переводит черновик в предпросмотр той же базы: записи, цены, оплаты и доступы сохраняются. Отдельного «ненастоящего» переключателя нет — кнопка выше выполняет реальную публикацию.
-              </Text>
-            ) : null}
-          </VStack>
-        </section>
-      ) : null}
+      <PublicationSection
+        tenantId={tenantId}
+        config={config}
+        detail={detail}
+        validation={validation}
+        publicUrl={publicUrl}
+        bookable={bookable}
+        lifecyclePending={lifecycleMutation.isPending}
+        onPublish={() => lifecycleMutation.mutate({kind: 'publish', id: newRequestId()})}
+        onAskActivate={() => { setActivateRequestId(newRequestId()); setActivateOpen(true); }}
+        onDownload={() => void downloadExport()}
+        onNotice={setNotice}
+        onSaved={refresh}
+        onGoTab={setTab}
+        hidden={tab !== 'publication'}
+      />
 
       <Link className="admin-link" to={adminUrl('tenants')}>К списку студий</Link>
 
@@ -427,7 +506,7 @@ function DefinitionRow({label, value}: {label: string; value: string}) {
   );
 }
 
-function useProfileSaver(tenantId: string, onSaved: () => Promise<void>, onNotice: (notice: {kind: 'success' | 'error'; text: string}) => void) {
+function useProfileSaver(tenantId: string, onSaved: () => Promise<void>, onNotice: (notice: Notice) => void) {
   const save = useMutation({
     mutationFn: (profile: Record<string, unknown>) => updateAdminTenantProfile(tenantId, profile),
     onSuccess: async () => {
@@ -439,11 +518,12 @@ function useProfileSaver(tenantId: string, onSaved: () => Promise<void>, onNotic
   return save;
 }
 
-function BrandingSection({config, tenantId, onSaved, onNotice}: {
+function BrandingSection({config, tenantId, onSaved, onNotice, hidden}: {
   config: BusinessJson;
   tenantId: string;
   onSaved: () => Promise<void>;
-  onNotice: (notice: {kind: 'success' | 'error'; text: string}) => void;
+  onNotice: (notice: Notice) => void;
+  hidden: boolean;
 }) {
   const save = useProfileSaver(tenantId, onSaved, onNotice);
   const [name, setName] = useState(config.name);
@@ -491,19 +571,36 @@ function BrandingSection({config, tenantId, onSaved, onNotice}: {
   const cardsValid = cards.every((card) => card.title.trim().length > 0 && card.body.trim().length > 0);
   const promptsValid = prompts.split('\n').map((line) => line.trim()).filter(Boolean).length >= 1;
   const galleryValid = gallery.every((item) => item.image.trim().length > 0 && item.caption.trim().length > 0);
+  const requiredMissing = [
+    name.trim().length < 2 ? 'название' : null,
+    !city.trim() ? 'город' : null,
+    !address.trim() ? 'адрес' : null,
+    !phone.trim() ? 'телефон' : null,
+  ].filter(Boolean);
 
   return (
-    <section className="admin-tab-panel" role="tabpanel" aria-label="Оформление и профиль">
+    <section className="admin-tab-panel" role="tabpanel" aria-label="Оформление и профиль" hidden={hidden}>
       <VStack gap={4}>
         <section>
-          <Heading level={2}>Профиль</Heading>
+          <Heading level={2}>Обязательное для запуска</Heading>
+          <Text type="supporting" color="secondary">
+            {requiredMissing.length === 0 ? <CheckCircle aria-hidden="true" /> : <WarningCircle aria-hidden="true" />}{' '}
+            {requiredMissing.length === 0 ? 'Всё обязательное заполнено.' : `Осталось: ${requiredMissing.join(', ')}.`}
+          </Text>
           <section className="field-grid two-column">
             <label className="field"><small>Название</small><input value={name} onChange={(event) => { setName(event.currentTarget.value); touch(); }} required minLength={2} /></label>
-            <label className="field"><small>Короткий заголовок</small><input value={tagline} onChange={(event) => { setTagline(event.currentTarget.value); touch(); }} /></label>
-            <label className="field two-column-span"><small>Описание</small><textarea value={description} onChange={(event) => { setDescription(event.currentTarget.value); touch(); }} /></label>
             <label className="field"><small>Город</small><input value={city} onChange={(event) => { setCity(event.currentTarget.value); touch(); }} /></label>
             <label className="field"><small>Адрес</small><input value={address} onChange={(event) => { setAddress(event.currentTarget.value); touch(); }} /></label>
             <label className="field"><small>Телефон</small><input value={phone} onChange={(event) => { setPhone(event.currentTarget.value); touch(); }} /></label>
+          </section>
+        </section>
+
+        <section>
+          <Heading level={3}>Дополнительно</Heading>
+          <Text type="supporting" color="secondary">Можно заполнить позже — публикации не мешают, но нужны до выхода в эфир.</Text>
+          <section className="field-grid two-column">
+            <label className="field"><small>Короткий заголовок</small><input value={tagline} onChange={(event) => { setTagline(event.currentTarget.value); touch(); }} /></label>
+            <label className="field two-column-span"><small>Описание</small><textarea value={description} onChange={(event) => { setDescription(event.currentTarget.value); touch(); }} /></label>
             <label className="field"><small>Ссылка на карту</small><input value={mapUrl} onChange={(event) => { setMapUrl(event.currentTarget.value); touch(); }} type="url" /></label>
             <label className="field"><small>Часовой пояс IANA</small><input value={timezone} onChange={(event) => { setTimezone(event.currentTarget.value); touch(); }} /></label>
             <label className="field"><small>Валюта ISO</small><input value={currency} onChange={(event) => { setCurrency(event.currentTarget.value.toUpperCase()); touch(); }} maxLength={3} /></label>
@@ -518,7 +615,7 @@ function BrandingSection({config, tenantId, onSaved, onNotice}: {
         </section>
 
         <section>
-          <Heading level={3}>Еженедельный график</Heading>
+          <Heading level={3}>Еженедельный график (обязательно: хотя бы один день)</Heading>
           {hours.map((row) => (
             <section className="hours-editor-row" key={row.weekday}>
               <label className="checkbox-field">
@@ -532,7 +629,7 @@ function BrandingSection({config, tenantId, onSaved, onNotice}: {
         </section>
 
         <section>
-          <Heading level={3}>Галерея</Heading>
+          <Heading level={3}>Галерея (необязательно)</Heading>
           {gallery.length === 0 ? <Text type="supporting" color="secondary">Фотографий пока нет — добавьте по URL.</Text> : null}
           {gallery.map((item, index) => (
             <section className="gallery-admin-row" key={item.id}>
@@ -580,32 +677,50 @@ function BrandingSection({config, tenantId, onSaved, onNotice}: {
   );
 }
 
-function emptyService(currency: string): {slug: string; name: string; description: string; category: string; price: string; duration: string; before: string; after: string; resourceTypes: string; active: boolean} {
-  void currency;
+function emptyService(): {slug: string; name: string; description: string; category: string; price: string; duration: string; before: string; after: string; resourceTypes: string; active: boolean} {
   return {slug: '', name: '', description: '', category: 'Услуга', price: '', duration: '60', before: '0', after: '0', resourceTypes: 'any', active: true};
 }
 
-function ServicesSection({tenantId, currency, services, isLoading, isError, error, onSaved, onNotice}: {
+function parseTypes(value: string): string[] {
+  return value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function ServicesSection({tenantId, currency, services, resources, catalogReady, isError, error, onSaved, onNotice, hidden}: {
   tenantId: string;
   currency: string;
   services: AdminServiceRow[];
-  isLoading: boolean;
+  resources: AdminResourceRow[];
+  catalogReady: boolean;
   isError: boolean;
   error: unknown;
   onSaved: () => Promise<void>;
-  onNotice: (notice: {kind: 'success' | 'error'; text: string}) => void;
+  onNotice: (notice: Notice) => void;
+  hidden: boolean;
 }) {
-  const [form, setForm] = useState(emptyService(currency));
+  const [form, setForm] = useState(emptyService());
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
+  const [typesTouched, setTypesTouched] = useState(false);
   const mutation = useMutation({
     mutationFn: (service: Record<string, unknown>) => saveAdminService(tenantId, service),
     onSuccess: async () => {
       onNotice({kind: 'success', text: 'Услуга сохранена. Исторические цены записей не меняются.'});
-      setForm(emptyService(currency));
+      setForm(emptyService());
       setEditingSlug(null);
+      setTypesTouched(false);
       await onSaved();
     },
     onError: (caught) => onNotice({kind: 'error', text: caught instanceof Error ? caught.message : 'Не удалось сохранить услугу.'}),
+  });
+  const createPostMutation = useMutation({
+    mutationFn: (types: string[]) => {
+      const draft = deriveResourceDraft(types, resources.map((resource) => resource.slug));
+      return saveAdminResource(tenantId, {slug: draft.slug, name: draft.name, resourceType: draft.resourceType, active: true}).then(() => draft);
+    },
+    onSuccess: async (draft) => {
+      onNotice({kind: 'success', text: `Пост «${draft.name}» создан и подходит услуге. Сохраните услугу.`});
+      await onSaved();
+    },
+    onError: (caught) => onNotice({kind: 'error', text: caught instanceof Error ? caught.message : 'Не удалось создать пост.'}),
   });
 
   const submit = () => {
@@ -619,13 +734,14 @@ function ServicesSection({tenantId, currency, services, isLoading, isError, erro
       durationMinutes: Math.max(1, Number(form.duration) || 60),
       bufferBeforeMinutes: Math.max(0, Number(form.before) || 0),
       bufferAfterMinutes: Math.max(0, Number(form.after) || 0),
-      resourceTypes: form.resourceTypes.split(',').map((value) => value.trim()).filter(Boolean),
+      resourceTypes: parseTypes(form.resourceTypes),
       active: form.active,
     });
   };
 
   const startEdit = (row: AdminServiceRow) => {
     setEditingSlug(row.slug);
+    setTypesTouched(true);
     setForm({
       slug: row.slug, name: row.name, description: row.description, category: row.category,
       price: String(row.priceMinor / 100), duration: String(row.durationMinutes),
@@ -633,35 +749,91 @@ function ServicesSection({tenantId, currency, services, isLoading, isError, erro
       resourceTypes: row.resourceTypes.join(', '), active: row.active,
     });
   };
+  const cancelEdit = () => {
+    setEditingSlug(null);
+    setTypesTouched(false);
+    setForm(emptyService());
+  };
 
-  const valid = form.slug.trim().length > 0 && form.name.trim().length > 0 && form.resourceTypes.split(',').map((value) => value.trim()).filter(Boolean).length > 0;
+  const types = parseTypes(form.resourceTypes);
+  const pristine = editingSlug === null && !typesTouched && form.name === '' && form.slug === '' && form.description === '';
+  // Preselect: a fresh form on a studio with exactly one compatible post (or
+  // an 'any' post, which matches the default) points at it right away.
+  if (pristine && catalogReady && resources.length > 0 && form.resourceTypes === 'any') {
+    const {suggestion} = suggestServiceResourceTypes(['any'], resources);
+    if (suggestion && suggestion.join(', ') !== 'any') {
+      setForm({...form, resourceTypes: suggestion.join(', ')});
+    }
+  }
+  const compat = catalogReady ? suggestServiceResourceTypes(types.length > 0 ? types : ['any'], resources) : {compatible: [] as AdminResourceRow[], suggestion: null as string[] | null};
+  const noCompatiblePost = catalogReady && types.length > 0 && compat.compatible.length === 0;
+
+  const slugError = form.slug.trim() ? validateSlug(form.slug) : null;
+  const valid = form.slug.trim().length > 0 && !slugError && form.name.trim().length > 0 && types.length > 0;
 
   return (
-    <section className="admin-tab-panel" role="tabpanel" aria-label="Услуги студии">
+    <section className="admin-tab-panel" role="tabpanel" aria-label="Услуги студии" hidden={hidden}>
       <VStack gap={3}>
         <Heading level={2}>Услуги</Heading>
         <Text type="supporting" color="secondary">Цены в {currency}. Изменение услуги не переписывает цены уже созданных записей.</Text>
-        {isError ? <Banner status="error" title="Не удалось загрузить услуги" description={error instanceof Error ? error.message : 'Попробуйте позже.'} /> : null}
-        {isLoading ? <Text type="supporting" color="secondary" role="status">Загружаем услуги…</Text> : null}
-        {!isLoading && services.length === 0 ? <EmptyState title="Услуг нет" description="Добавьте первую услугу — без неё публикация заблокирована." /> : null}
+        {isError ? <Banner status="error" title="Не удалось загрузить каталог" description={error instanceof Error ? error.message : 'Попробуйте позже.'} /> : null}
+        {!catalogReady ? <Text type="supporting" color="secondary" role="status">Загружаем услуги…</Text> : null}
+        {catalogReady && services.length === 0 ? <EmptyState title="Услуг нет" description="Добавьте первую услугу — без неё публикация заблокирована." /> : null}
         {services.length > 0 ? <Table<AdminServiceRow> data={services} columns={serviceEditColumns(startEdit)} idKey="id" density="compact" hasHover /> : null}
         <section className="form-panel">
           <Heading level={3}>{editingSlug ? `Изменить: ${editingSlug}` : 'Новая услуга'}</Heading>
           <section className="field-grid two-column">
             <label className="field"><small>Название</small><input value={form.name} onChange={(event) => setForm({...form, name: event.currentTarget.value})} required /></label>
-            <label className="field"><small>Адрес услуги (slug)</small><input value={form.slug} onChange={(event) => setForm({...form, slug: event.currentTarget.value.toLowerCase().replaceAll(' ', '-')})} required disabled={editingSlug !== null} /></label>
+            <label className="field">
+              <small>Slug услуги</small>
+              <input
+                value={form.slug}
+                onChange={(event) => setForm({...form, slug: normalizeSlugInput(event.currentTarget.value)})}
+                required
+                disabled={editingSlug !== null}
+                aria-describedby="service-slug-hint"
+              />
+            </label>
+            <Text type="supporting" color="secondary" id="service-slug-hint">{SLUG_FORMAT_HINT}{editingSlug !== null ? ' Slug услуги нельзя изменить.' : ''}</Text>
+            {slugError ? <p className="form-error" role="alert">{slugError}</p> : null}
             <label className="field"><small>Описание</small><input value={form.description} onChange={(event) => setForm({...form, description: event.currentTarget.value})} /></label>
             <label className="field"><small>Категория</small><input value={form.category} onChange={(event) => setForm({...form, category: event.currentTarget.value})} /></label>
             <label className="field"><small>Цена ({currency})</small><input value={form.price} onChange={(event) => setForm({...form, price: event.currentTarget.value})} type="number" min="0" step="0.01" /></label>
             <label className="field"><small>Длительность, минут</small><input value={form.duration} onChange={(event) => setForm({...form, duration: event.currentTarget.value})} type="number" min="1" /></label>
             <label className="field"><small>Буфер до, минут</small><input value={form.before} onChange={(event) => setForm({...form, before: event.currentTarget.value})} type="number" min="0" /></label>
             <label className="field"><small>Буфер после, минут</small><input value={form.after} onChange={(event) => setForm({...form, after: event.currentTarget.value})} type="number" min="0" /></label>
-            <label className="field"><small>Типы постов через запятую</small><input value={form.resourceTypes} onChange={(event) => setForm({...form, resourceTypes: event.currentTarget.value})} /></label>
+            <label className="field"><small>Типы постов через запятую</small><input value={form.resourceTypes} onChange={(event) => setForm({...form, resourceTypes: event.currentTarget.value})} onBlur={() => setTypesTouched(true)} /></label>
             <label className="field checkbox-field"><input checked={form.active} onChange={(event) => setForm({...form, active: event.currentTarget.checked})} type="checkbox" /><small>Доступна для записи</small></label>
           </section>
+
+          <section className="admin-compat" aria-live="polite">
+            <Text type="supporting" color="secondary">
+              Пост подходит услуге, когда его тип совпадает с одним из типов услуги. Тип «any» с любой стороны означает «работает со всеми».
+            </Text>
+            {catalogReady && types.length > 0 && compat.compatible.length > 0 ? (
+              <Text type="supporting"><CheckCircle aria-hidden="true" /> Эту услугу смогут выполнять: {compat.compatible.map((resource) => resource.name).join(', ')}.</Text>
+            ) : null}
+            {noCompatiblePost ? (
+              <Banner
+                status="warning"
+                title="Нет подходящего поста"
+                description={`Ни один активный пост не подходит типам «${types.join(', ')}». Создайте подходящий пост в один клик — или измените типы.`}
+              />
+            ) : null}
+            {noCompatiblePost ? (
+              <Button
+                label="Создать подходящий пост"
+                variant="secondary"
+                size="sm"
+                isLoading={createPostMutation.isPending}
+                onClick={() => createPostMutation.mutate(types)}
+              />
+            ) : null}
+          </section>
+
           <HStack gap={2}>
             <Button label={editingSlug ? 'Сохранить услугу' : 'Добавить услугу'} variant="primary" size="sm" isLoading={mutation.isPending} isDisabled={!valid} onClick={submit} />
-            {editingSlug ? <Button label="Отмена" variant="ghost" size="sm" onClick={() => { setEditingSlug(null); setForm(emptyService(currency)); }} /> : null}
+            {editingSlug ? <Button label="Отмена" variant="ghost" size="sm" onClick={cancelEdit} /> : null}
           </HStack>
         </section>
       </VStack>
@@ -669,31 +841,60 @@ function ServicesSection({tenantId, currency, services, isLoading, isError, erro
   );
 }
 
-function ResourcesSection({tenantId, resources, overrides, isLoading, onSaved, onNotice}: {
+function ResourcesSection({tenantId, resources, overrides, isLoading, onSaved, onNotice, hidden}: {
   tenantId: string;
   resources: AdminResourceRow[];
   overrides: AdminDateOverrideRow[];
   isLoading: boolean;
   onSaved: () => Promise<void>;
-  onNotice: (notice: {kind: 'success' | 'error'; text: string}) => void;
+  onNotice: (notice: Notice) => void;
+  hidden: boolean;
 }) {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
+  const [slugTouched, setSlugTouched] = useState(false);
   const [resourceType, setResourceType] = useState('any');
+  const [location, setLocation] = useState('');
+  const [active, setActive] = useState(true);
+  const [editingSlug, setEditingSlug] = useState<string | null>(null);
   const [localDate, setLocalDate] = useState('');
   const [isClosed, setIsClosed] = useState(true);
   const [opensAt, setOpensAt] = useState('09:00');
   const [closesAt, setClosesAt] = useState('19:00');
   const [label, setLabel] = useState('');
 
+  const resetResourceForm = () => {
+    setName(''); setSlug(''); setSlugTouched(false); setResourceType('any'); setLocation(''); setActive(true); setEditingSlug(null);
+  };
+  const startEdit = (row: AdminResourceRow) => {
+    setEditingSlug(row.slug);
+    setName(row.name);
+    setSlug(row.slug);
+    setSlugTouched(true);
+    setResourceType(row.resourceType || 'any');
+    setLocation(row.location ?? '');
+    setActive(row.active);
+  };
+
   const resourceMutation = useMutation({
     mutationFn: (resource: Record<string, unknown>) => saveAdminResource(tenantId, resource),
     onSuccess: async () => {
       onNotice({kind: 'success', text: 'Пост сохранён.'});
-      setName(''); setSlug(''); setResourceType('any');
+      resetResourceForm();
       await onSaved();
     },
-    onError: (caught) => onNotice({kind: 'error', text: caught instanceof Error ? caught.message : 'Не удалось сохранить пост.'}),
+    onError: async (caught) => {
+      // The post itself was saved; only the new `location` field was dropped
+      // by an older server. Refresh so the list shows the truth, and warn.
+      const body = caught instanceof Error && 'body' in caught ? (caught as AdminApiError).body : null;
+      if (body && typeof body === 'object' && (body as {locationDropped?: boolean}).locationDropped === true) {
+        onNotice({kind: 'warning', text: caught instanceof Error ? caught.message : 'Пост сохранён без места.'});
+        resetResourceForm();
+        await onSaved();
+        return;
+      }
+      onNotice({kind: 'error', text: caught instanceof Error ? caught.message : 'Не удалось сохранить пост.'});
+    },
   });
   const overrideMutation = useMutation({
     mutationFn: (override: Record<string, unknown>) => saveAdminDateOverride(tenantId, override),
@@ -705,19 +906,69 @@ function ResourcesSection({tenantId, resources, overrides, isLoading, onSaved, o
     onError: (caught) => onNotice({kind: 'error', text: caught instanceof Error ? caught.message : 'Не удалось сохранить дату.'}),
   });
 
+  const onNameChange = (value: string) => {
+    setName(value);
+    if (!slugTouched && editingSlug === null) setSlug(suggestSlug(value));
+  };
+  const slugError = slug.trim() ? validateSlug(slug) : null;
+  const locationError = location.trim().length > 120 ? 'Место — не длиннее 120 символов.' : null;
+  const canSaveResource = name.trim().length > 0 && slug.trim().length > 0 && !slugError && !locationError && resourceType.trim().length > 0;
+
   return (
-    <section className="admin-tab-panel" role="tabpanel" aria-label="Ресурсы и часы">
+    <section className="admin-tab-panel" role="tabpanel" aria-label="Ресурсы и часы" hidden={hidden}>
       <VStack gap={4}>
         <section>
           <Heading level={2}>Рабочие посты</Heading>
           <Text type="supporting" color="secondary">У каждой bookable-услуги должен быть хотя бы один совместимый активный пост: совпадение типа или any с любой стороны.</Text>
           {isLoading ? <Text type="supporting" color="secondary" role="status">Загружаем…</Text> : null}
-          {resources.length > 0 ? <Table<AdminResourceRow> data={resources} columns={RESOURCE_COLUMNS} idKey="id" density="compact" hasHover /> : <EmptyState title="Постов нет" description="Добавьте первый пост — без него услуги нельзя опубликовать." />}
-          <section className="inline-form">
-            <label className="field"><small>Название</small><input value={name} onChange={(event) => setName(event.currentTarget.value)} required /></label>
-            <label className="field"><small>Адрес</small><input value={slug} onChange={(event) => setSlug(event.currentTarget.value.toLowerCase().replaceAll(' ', '-'))} required /></label>
-            <label className="field"><small>Тип</small><input value={resourceType} onChange={(event) => setResourceType(event.currentTarget.value)} required /></label>
-            <Button label="Добавить или изменить пост" variant="secondary" size="sm" isLoading={resourceMutation.isPending} isDisabled={!name.trim() || !slug.trim() || !resourceType.trim()} onClick={() => resourceMutation.mutate({slug: slug.trim(), name: name.trim(), resourceType: resourceType.trim(), active: true})} />
+          {resources.length > 0 ? (
+            <VStack gap={2}>
+              <Table<AdminResourceRow> data={resources} columns={resourceTableColumns()} idKey="id" density="compact" hasHover />
+              <HStack gap={2}>
+                {resources.map((resource) => (
+                  <Button key={resource.id} label={`Править: ${resource.name}`} size="sm" variant="ghost" onClick={() => startEdit(resource)} />
+                ))}
+              </HStack>
+            </VStack>
+          ) : <EmptyState title="Постов нет" description="Добавьте первый пост — без него услуги нельзя опубликовать." />}
+          <section className="form-panel">
+            <Heading level={3}>{editingSlug ? `Изменить: ${editingSlug}` : 'Новый пост'}</Heading>
+            <section className="field-grid two-column">
+              <label className="field">
+                <small>Название поста</small>
+                <input value={name} onChange={(event) => onNameChange(event.currentTarget.value)} required placeholder="Например, Пост детейлинга" />
+              </label>
+              <label className="field">
+                <small>Slug поста</small>
+                <input
+                  value={slug}
+                  onChange={(event) => { setSlugTouched(true); setSlug(normalizeSlugInput(event.currentTarget.value)); }}
+                  required
+                  disabled={editingSlug !== null}
+                  aria-describedby="resource-slug-hint"
+                />
+              </label>
+              <Text type="supporting" color="secondary" id="resource-slug-hint">{SLUG_FORMAT_HINT}{editingSlug !== null ? ' Slug поста нельзя изменить.' : ' Подставим из названия, можно исправить.'}</Text>
+              {slugError ? <p className="form-error" role="alert">{slugError}</p> : null}
+              <label className="field"><small>Тип поста</small><input value={resourceType} onChange={(event) => setResourceType(event.currentTarget.value)} required placeholder="any" /></label>
+              <label className="field">
+                <small>Место (необязательно)</small>
+                <input value={location} onChange={(event) => setLocation(event.currentTarget.value)} maxLength={120} placeholder="Например, Пост № 2" />
+              </label>
+              {locationError ? <p className="form-error" role="alert">{locationError}</p> : null}
+              <label className="field checkbox-field"><input checked={active} onChange={(event) => setActive(event.currentTarget.checked)} type="checkbox" /><small>Активен и принимает записи</small></label>
+            </section>
+            <HStack gap={2}>
+              <Button
+                label={editingSlug ? 'Сохранить пост' : 'Добавить пост'}
+                variant="secondary"
+                size="sm"
+                isLoading={resourceMutation.isPending}
+                isDisabled={!canSaveResource}
+                onClick={() => resourceMutation.mutate({slug: slug.trim().toLowerCase(), name: name.trim(), resourceType: resourceType.trim(), location: location.trim(), active})}
+              />
+              {editingSlug ? <Button label="Отмена" variant="ghost" size="sm" onClick={resetResourceForm} /> : null}
+            </HStack>
           </section>
         </section>
 
@@ -733,6 +984,137 @@ function ResourcesSection({tenantId, resources, overrides, isLoading, onSaved, o
             <Button label="Сохранить дату" variant="secondary" size="sm" isLoading={overrideMutation.isPending} isDisabled={!localDate} onClick={() => overrideMutation.mutate({localDate, isClosed, opensAt: isClosed ? null : opensAt, closesAt: isClosed ? null : closesAt, label})} />
           </section>
         </section>
+      </VStack>
+    </section>
+  );
+}
+
+type ChecklistRow = {id: string; done: boolean; label: string; actionLabel: string | null; action: (() => void) | null};
+
+const CHECKLIST_COLUMNS: Array<TableColumn<ChecklistRow>> = [
+  {
+    key: 'id',
+    header: 'Готовность',
+    width: proportional(1, {minWidth: 110}),
+    renderCell: (row) => (
+      <Text type="supporting">{row.done ? <CheckCircle aria-hidden="true" /> : <WarningCircle aria-hidden="true" />} {row.done ? 'Готово' : 'Нужно'}</Text>
+    ),
+  },
+  {key: 'label', header: 'Требование', width: proportional(2, {minWidth: 170})},
+];
+
+function checklistColumns(): Array<TableColumn<ChecklistRow>> {
+  return [
+    ...CHECKLIST_COLUMNS,
+    {
+      key: 'actionLabel',
+      header: '',
+      width: proportional(1, {minWidth: 130}),
+      renderCell: (row) => (row.action && row.actionLabel ? <Button label={row.actionLabel} size="sm" variant="ghost" onClick={row.action} /> : <Text type="supporting">—</Text>),
+    },
+  ];
+}
+
+function PublicationSection({tenantId, config, detail, validation, publicUrl, bookable, lifecyclePending, onPublish, onAskActivate, onDownload, onNotice, onSaved, onGoTab, hidden}: {
+  tenantId: string;
+  config: BusinessJson;
+  detail: AdminTenantDetail;
+  validation: ValidationReport;
+  publicUrl: string;
+  bookable: boolean;
+  lifecyclePending: boolean;
+  onPublish: () => void;
+  onAskActivate: () => void;
+  onDownload: () => void;
+  onNotice: (notice: Notice) => void;
+  onSaved: () => Promise<void>;
+  onGoTab: (tab: AdminSetupTab) => void;
+  hidden: boolean;
+}) {
+  const save = useProfileSaver(tenantId, onSaved, onNotice);
+  const status = config.status;
+  const missingContact = [
+    {field: 'название', filled: config.name.trim().length >= 2},
+    {field: 'город', filled: config.city.trim().length > 0},
+    {field: 'адрес', filled: config.address.trim().length > 0},
+    {field: 'телефон', filled: config.phone.trim().length > 0},
+  ].filter((item) => !item.filled);
+
+  const rows: ChecklistRow[] = [
+    {
+      id: 'status',
+      done: status === 'preview' || status === 'live',
+      label: status === 'live' ? 'Студия уже в эфире.' : status === 'preview' ? 'Предпросмотр пройден — можно готовиться к эфиру.' : 'Сначала опубликуйте черновик в предпросмотр.',
+      actionLabel: status === 'draft' && validation.errors.length === 0 ? 'Опубликовать' : null,
+      action: status === 'draft' && validation.errors.length === 0 ? onPublish : null,
+    },
+    {
+      id: 'demo',
+      done: !config.demo,
+      label: config.demo ? 'Демо-режим включён: уведомления отключены, в эфир с ним нельзя.' : 'Демо-режим выключен.',
+      actionLabel: config.demo ? 'Выключить демо' : null,
+      action: config.demo ? () => save.mutate({isDemo: false}) : null,
+    },
+    {
+      id: 'contacts',
+      done: missingContact.length === 0,
+      label: missingContact.length === 0 ? 'Контакты заполнены: название, город, адрес, телефон.' : `Заполните контакты: ${missingContact.map((item) => item.field).join(', ')}.`,
+      actionLabel: missingContact.length === 0 ? null : 'Заполнить',
+      action: missingContact.length === 0 ? null : () => onGoTab('branding'),
+    },
+    {
+      id: 'validation',
+      done: validation.errors.length === 0,
+      label: validation.errors.length === 0 ? 'Блокирующих ошибок проверки нет.' : `Блокирующих ошибок: ${validation.errors.length} — исправьте каждую.`,
+      actionLabel: validation.errors.length === 0 ? null : 'К ошибкам',
+      action: validation.errors.length === 0 ? null : () => onGoTab('overview'),
+    },
+  ];
+
+  return (
+    <section className="admin-tab-panel" role="tabpanel" aria-label="Публикация студии" hidden={hidden}>
+      <VStack gap={3}>
+        <Heading level={2}>Публикация</Heading>
+        <section className="admin-definition-list">
+          <DefinitionRow label="Статус" value={visibilityLabel(detail.tenant.visibility)} />
+          <DefinitionRow label="Страница студии" value={bookable ? publicUrl : 'появится после публикации'} />
+          <DefinitionRow label="Демо-режим" value={config.demo ? 'Включён (уведомления отключены; в live нельзя)' : 'Выключен'} />
+        </section>
+
+        <Heading level={3}>Подготовить к активации</Heading>
+        <Text type="supporting" color="secondary">Каждый пункт решается прямо здесь — без тихой активации: кнопка «Активировать» ниже всегда спрашивает подтверждение, а сервер проверяет всё заново.</Text>
+        <Table<ChecklistRow> data={rows} columns={checklistColumns()} idKey="id" density="compact" hasHover />
+        <FindingList title="Блокирующие ошибки" items={validation.errors} tone="error" onFix={onGoTab} />
+        <FindingList title="Предупреждения" items={validation.warnings} tone="warning" />
+
+        <HStack gap={2}>
+          <Button
+            label="Опубликовать (в предпросмотр)"
+            variant="primary"
+            icon={<RocketLaunch aria-hidden="true" />}
+            isDisabled={status !== 'draft' || lifecyclePending}
+            isLoading={lifecyclePending}
+            onClick={onPublish}
+          />
+          <Button
+            label="Активировать (в эфир)"
+            variant="secondary"
+            isDisabled={status !== 'preview' || lifecyclePending}
+            isLoading={lifecyclePending}
+            onClick={onAskActivate}
+          />
+          <Button label="Скачать business.json" variant="ghost" icon={<DownloadSimple aria-hidden="true" />} onClick={onDownload} />
+        </HStack>
+        {status === 'preview' ? (
+          <Text type="supporting" color="secondary">
+            Проверьте страницу {publicUrl} и записи, затем активируйте. Проверка CLI: положите скачанный файл в tenants/{config.slug}/business.json и выполните tenant:verify.
+          </Text>
+        ) : null}
+        {status === 'draft' ? (
+          <Text type="supporting" color="secondary">
+            Публикация переводит черновик в предпросмотр той же базы: записи, цены, оплаты и доступы сохраняются. Отдельного «ненастоящего» переключателя нет — кнопка выше выполняет реальную публикацию.
+          </Text>
+        ) : null}
       </VStack>
     </section>
   );

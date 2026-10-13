@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600" role="img" aria-label="Заглушка фото работ: полировка кузова">
+  <rect width="800" height="600" fill="#141A23"/>
+  <rect x="0" y="430" width="800" height="170" fill="#0B0D11"/>
+  <path d="M120 430c60-130 150-210 280-210s220 80 280 210Z" fill="#232E3D"/>
+  <path d="M120 430c60-130 150-210 280-210s220 80 280 210" fill="none" stroke="#9FB6CC" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="400" cy="300" r="120" fill="none" stroke="#4690FF" stroke-width="10" stroke-dasharray="40 24" opacity="0.9"/>
+  <circle cx="400" cy="300" r="64" fill="#1E2836" stroke="#F2F5F9" stroke-width="10"/>
+  <circle cx="400" cy="300" r="18" fill="#4690FF"/>
+  <g fill="#F2F5F9" opacity="0.85">
+    <circle cx="180" cy="140" r="6"/>
+    <circle cx="620" cy="120" r="5"/>
+    <circle cx="690" cy="220" r="6"/>
+    <circle cx="120" cy="250" r="5"/>
+  </g>
+  <g stroke="#4690FF" stroke-width="7" stroke-linecap="round" opacity="0.8">
+    <path d="M560 150l12 28 28 12-28 12-12 28-12-28-28-12 28-12Z" fill="none"/>
+  </g>
+</svg>

@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Заглушка главного фото детейлинг-студии">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1B2430"/>
+      <stop offset="0.62" stop-color="#11151C"/>
+      <stop offset="1" stop-color="#0B0D11"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4690FF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#4690FF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#sky)"/>
+  <g fill="#F2F5F9" opacity="0.8">
+    <circle cx="150" cy="90" r="4"/>
+    <circle cx="420" cy="60" r="3"/>
+    <circle cx="760" cy="80" r="4"/>
+    <circle cx="1020" cy="110" r="3"/>
+    <circle cx="900" cy="180" r="3"/>
+    <circle cx="260" cy="170" r="3"/>
+  </g>
+  <polygon points="330,400 1050,300 1050,380 330,480" fill="url(#beam)"/>
+  <g fill="none" stroke="#9FB6CC" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M230 420h740l-72-168a112 112 0 0 0-107-72H448a112 112 0 0 0-107 72l-111 168Z"/>
+    <path d="M300 420v84m600-84v84M370 504h460"/>
+  </g>
+  <g fill="#0B0D11" stroke="#F2F5F9" stroke-width="14">
+    <circle cx="420" cy="446" r="52"/>
+    <circle cx="790" cy="446" r="52"/>
+  </g>
+  <g fill="#4690FF">
+    <circle cx="420" cy="446" r="14"/>
+    <circle cx="790" cy="446" r="14"/>
+  </g>
+  <rect x="0" y="560" width="1200" height="70" fill="#08090C"/>
+  <rect x="0" y="556" width="1200" height="6" fill="#4690FF" opacity="0.7"/>
+  <g stroke="#4690FF" stroke-width="8" stroke-linecap="round" opacity="0.9">
+    <path d="M180 200l14 34 34 14-34 14-14 34-14-34-34-14 34-14Z" fill="none"/>
+    <path d="M1010 400l10 26 26 10-26 10-10 26-10-26-26-10 26-10Z" fill="none"/>
+  </g>
+</svg>

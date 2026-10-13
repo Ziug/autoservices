@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600" role="img" aria-label="Заглушка фото работ: мойка и капли воды">
+  <rect width="800" height="600" fill="#121922"/>
+  <g fill="#4690FF" opacity="0.28">
+    <circle cx="120" cy="480" r="90"/>
+    <circle cx="680" cy="470" r="110"/>
+  </g>
+  <g fill="#9FD0FF">
+    <path d="M250 120c34 46 52 80 52 112a52 52 0 0 1-104 0c0-32 18-66 52-112Z"/>
+    <path d="M450 80c26 36 40 62 40 87a40 40 0 0 1-80 0c0-25 14-51 40-87Z"/>
+    <path d="M610 170c22 30 34 52 34 73a34 34 0 0 1-68 0c0-21 12-43 34-73Z"/>
+    <path d="M150 230c16 22 25 38 25 54a25 25 0 0 1-50 0c0-16 9-32 25-54Z"/>
+  </g>
+  <g fill="none" stroke="#F2F5F9" stroke-width="12" stroke-linecap="round">
+    <path d="M180 470h440"/>
+    <path d="M230 470c0-70 30-120 90-150"/>
+    <path d="M570 470c0-70-30-120-90-150"/>
+  </g>
+  <path d="M320 320h160l-16-40H336l-16 40Z" fill="#232E3D" stroke="#9FB6CC" stroke-width="8" stroke-linejoin="round"/>
+  <rect x="0" y="520" width="800" height="80" fill="#0B0D11"/>
+</svg>

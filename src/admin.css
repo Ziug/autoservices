@@ -332,3 +332,68 @@
   object-fit: cover;
   border-radius: calc(var(--radius-container) * 0.7);
 }
+
+/* Simplified creation: template choice + compatibility hints. Scoped under .admin-* only. */
+
+.admin-template-group {
+  display: grid;
+  gap: var(--spacing-2);
+}
+
+.admin-template-group h3 {
+  margin: 0;
+}
+
+.admin-template-option {
+  display: flex;
+  gap: var(--spacing-3);
+  align-items: flex-start;
+  padding: var(--spacing-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: calc(var(--radius-container) * 0.7);
+  cursor: pointer;
+}
+
+.admin-template-option[data-selected='true'] {
+  border-color: var(--color-border-emphasized);
+  background: var(--color-background-muted);
+}
+
+.admin-template-option input[type='radio'] {
+  margin-block-start: var(--spacing-1);
+  accent-color: var(--color-accent);
+}
+
+.admin-template-copy {
+  display: grid;
+  gap: var(--spacing-1);
+  min-width: 0;
+}
+
+.admin-template-copy strong {
+  font-size: 0.95rem;
+}
+
+.admin-template-contents {
+  display: grid;
+  gap: var(--spacing-0-5);
+  margin: 0;
+  padding-inline-start: var(--spacing-4);
+  list-style: disc;
+}
+
+.admin-template-contents p {
+  margin: 0;
+}
+
+.admin-compat {
+  display: grid;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3);
+  border: var(--border-width) dashed var(--color-border-emphasized);
+  border-radius: calc(var(--radius-container) * 0.7);
+}
+
+.admin-compat p {
+  margin: 0;
+}

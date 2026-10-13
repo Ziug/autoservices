@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600" role="img" aria-label="Заглушка фото работ: свет фар после детейлинга">
+  <rect width="800" height="600" fill="#0C0F14"/>
+  <polygon points="400,360 800,220 800,420 400,460" fill="#4690FF" opacity="0.22"/>
+  <polygon points="400,360 0,240 0,420 400,460" fill="#4690FF" opacity="0.22"/>
+  <g fill="none" stroke="#9FB6CC" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M280 380h240l-24-84a64 64 0 0 0-61-44h-70a64 64 0 0 0-61 44l-24 84Z"/>
+    <path d="M304 380v36m192-36v36"/>
+  </g>
+  <g fill="#F6FAFF">
+    <ellipse cx="318" cy="360" rx="26" ry="14"/>
+    <ellipse cx="482" cy="360" rx="26" ry="14"/>
+  </g>
+  <g fill="none" stroke="#F6FAFF" stroke-width="6" stroke-linecap="round" opacity="0.9">
+    <path d="M180 180l10 24 24 10-24 10-10 24-10-24-24-10 24-10Z"/>
+    <path d="M620 140l8 20 20 8-20 8-8 20-8-20-20-8 20-8Z"/>
+    <path d="M680 330l8 20 20 8-20 8-8 20-8-20-20-8 20-8Z"/>
+  </g>
+  <rect x="0" y="520" width="800" height="80" fill="#08090C"/>
+  <rect x="0" y="516" width="800" height="5" fill="#4690FF" opacity="0.7"/>
+</svg>

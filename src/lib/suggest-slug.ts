@@ -13,6 +13,8 @@ const TRANSLITERATION: Record<string, string> = {
 
 export const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 export const SLUG_MAX_LENGTH = 100;
+/** Short inline hint rendered under every slug input (studios, services, posts). */
+export const SLUG_FORMAT_HINT = 'Только строчные латинские буквы, цифры и дефисы; нельзя начинать или заканчивать дефисом.';
 
 /** Suggest a URL-safe slug from an arbitrary studio name. */
 export function suggestSlug(name: string): string {
@@ -34,10 +36,10 @@ export function suggestSlug(name: string): string {
 /** Validate a slug client-side. Returns an error message or null when valid. */
 export function validateSlug(slug: string): string | null {
   const value = slug.trim().toLowerCase();
-  if (!value) return 'Введите адрес студии.';
-  if (value.length > SLUG_MAX_LENGTH) return `Адрес не длиннее ${SLUG_MAX_LENGTH} символов.`;
+  if (!value) return 'Введите slug — короткое латинское имя для ссылки.';
+  if (value.length > SLUG_MAX_LENGTH) return `Slug не длиннее ${SLUG_MAX_LENGTH} символов.`;
   if (!SLUG_PATTERN.test(value)) {
-    return 'Только строчные латинские буквы, цифры и дефисы; нельзя начинать или заканчивать дефисом.';
+    return SLUG_FORMAT_HINT;
   }
   return null;
 }

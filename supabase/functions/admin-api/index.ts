@@ -18,11 +18,14 @@ import {adminClient, checkRateLimit, errorMessage, errorStatus, forbiddenOrigin,
 //   mapped to {deduped:true}.
 // - Audit metadata is an explicit allow-list (tenant_id/from/to/reason/
 //   request_id). Never put passwords, tokens, or keys in audit rows.
-// - Studio lifecycle: create-tenant (draft shell, safe DB defaults, no
-//   services/resources), validate-tenant (read-only readiness report mirroring
+// - Studio lifecycle: create-tenant (draft shell, safe DB defaults; optional
+//   starter `template`: 'detailing' seeds 4 services + 3 resources + opening
+//   hours + placeholder media/URLs + generic copy, 'empty' keeps the bare
+//   shell), validate-tenant (read-only readiness report mirroring
 //   scripts/tenants.mjs validate), publish-tenant (draft→preview, single-column
 //   status update), activate-tenant (preview→live, demo refused, placeholder
-//   contact refused), export-tenant (business.json shape for the CLI pipeline).
+//   contact refused), export-tenant (business.json shape for the CLI pipeline,
+//   resources carry `location`).
 //   Publish/activate never touch services/resources/appointments/payments.
 
 const NOT_FOUND = {error: 'Not found.'} as const;
@@ -54,7 +57,7 @@ const PAYMENT_COLUMNS =
 const SERVICE_COLUMNS =
   'id,tenant_id,slug,name,description,category,price_minor,duration_minutes,buffer_before_minutes,buffer_after_minutes,resource_types,active,created_at,updated_at';
 const RESOURCE_COLUMNS =
-  'id,tenant_id,slug,name,resource_type,active,created_at,updated_at';
+  'id,tenant_id,slug,name,resource_type,location,active,created_at,updated_at';
 // Full tenant row for lifecycle actions (validate/publish/activate/export).
 // TENANT_COLUMNS above is left untouched for the existing dashboard views.
 const FULL_TENANT_COLUMNS =
@@ -106,6 +109,7 @@ const createTenantSchema = z.object({
   slug: strictSlug,
   timezone: z.string().min(3).max(100).default('Europe/Moscow'),
   currency: z.string().regex(/^[A-Z]{3}$/).default('RUB'),
+  template: z.enum(['detailing', 'empty']).default('detailing'),
   requestId: uuid,
 }).strict();
 const validateTenantSchema = z.object({tenantId: uuid}).strict();
@@ -134,7 +138,7 @@ const adminProfileSchema = z.object({
 const adminServiceSchema = z.object({slug: strictSlug, name: z.string().trim().min(1).max(100), description: z.string().max(1000).default(''), category: z.string().min(1).max(80), priceMinor: z.number().int().nonnegative(), durationMinutes: z.number().int().positive().max(10080), bufferBeforeMinutes: z.number().int().nonnegative().max(1440), bufferAfterMinutes: z.number().int().nonnegative().max(1440), resourceTypes: z.array(z.string().min(1).max(40)).min(1).max(8), active: z.boolean().default(true)}).strict();
 const updateTenantSchema = z.object({tenantId: uuid, profile: adminProfileSchema}).strict();
 const saveServiceSchema = z.object({tenantId: uuid, service: adminServiceSchema}).strict();
-const saveResourceSchema = z.object({tenantId: uuid, resource: z.object({slug: strictSlug, name: z.string().trim().min(1).max(100), resourceType: z.string().min(1).max(40), active: z.boolean().default(true)}).strict()}).strict();
+const saveResourceSchema = z.object({tenantId: uuid, resource: z.object({slug: strictSlug, name: z.string().trim().min(1).max(100), resourceType: z.string().min(1).max(40), location: z.string().trim().max(120).default(''), active: z.boolean().default(true)}).strict()}).strict();
 const saveDateOverrideSchema = z.object({tenantId: uuid, override: z.object({localDate: z.iso.date(), isClosed: z.boolean(), opensAt: z.string().regex(/^\d{2}:\d{2}$/).nullable(), closesAt: z.string().regex(/^\d{2}:\d{2}$/).nullable(), label: z.string().max(120).default('')}).strict()}).strict();
 const listOverridesSchema = z.object({tenantId: uuid}).strict();
 const auditListSchema = z.object({
@@ -229,6 +233,60 @@ const PLACEHOLDER_ADDRESS = 'Укажите адрес студии';
 const PLACEHOLDER_PHONE = '+7 000 000-00-00';
 const OPENING_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const STRICT_SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+// ---- Starter template (create-tenant ONLY) ----
+//
+// PWA/asset contract with the frontend agent: the backend stores ONLY these
+// URL strings; the actual SVG files are created and owned by the frontend
+// under public/placeholders/:
+//   /placeholders/detailing-hero.svg
+//   /placeholders/detailing-logo.svg
+//   /placeholders/detailing-work-1.svg
+//   /placeholders/detailing-work-2.svg
+//   /placeholders/detailing-work-3.svg
+// Seeding runs ONLY inside the create-tenant handler when template is
+// 'detailing' (the default). There are no triggers and no upsert-on-read
+// reseeding: update-tenant / save-service / save-resource / publish-tenant /
+// activate-tenant never add rows, so edits and republishes can never reseed.
+// 'empty' keeps the historical bare-shell behavior (no services/resources,
+// empty opening_hours/gallery/info_cards/prompts, blank hero/logo URLs).
+// Idempotency: the requestId pre-check plus the slug-clash 409 already dedupe
+// retries; services/resources use upsert on (tenant_id,slug) so a resumed
+// attempt cannot duplicate rows. Seeding never calls booking RPCs and never
+// creates appointments/payments/notifications or real customer data. Tenant
+// isolation holds via tenant_id on every row. Identity fields (tagline,
+// description, city, address, phone, map_url) stay EMPTY for the admin to
+// fill; activate-tenant still refuses demo tenants and placeholder contact.
+const TEMPLATE_OPENING_HOURS = [
+  {weekday: 1, opensAt: '09:00', closesAt: '20:00'},
+  {weekday: 2, opensAt: '09:00', closesAt: '20:00'},
+  {weekday: 3, opensAt: '09:00', closesAt: '20:00'},
+  {weekday: 4, opensAt: '09:00', closesAt: '20:00'},
+  {weekday: 5, opensAt: '09:00', closesAt: '20:00'},
+  {weekday: 6, opensAt: '10:00', closesAt: '18:00'},
+];
+const TEMPLATE_SERVICES = [
+  {slug: 'exterior-wash', name: 'Мойка кузова', description: 'Деликатная мойка, сушка и уход за внешними поверхностями.', category: 'Уход', priceMinor: 150000, durationMinutes: 60, bufferBeforeMinutes: 10, bufferAfterMinutes: 10, resourceTypes: ['any']},
+  {slug: 'interior-cleaning', name: 'Чистка салона', description: 'Тщательная очистка салона и защита материалов.', category: 'Салон', priceMinor: 890000, durationMinutes: 240, bufferBeforeMinutes: 15, bufferAfterMinutes: 30, resourceTypes: ['any']},
+  {slug: 'full-detailing', name: 'Полный детейлинг', description: 'Комплексный уход за кузовом и салоном с финальным контролем.', category: 'Комплекс', priceMinor: 1890000, durationMinutes: 480, bufferBeforeMinutes: 30, bufferAfterMinutes: 60, resourceTypes: ['any']},
+  {slug: 'polishing', name: 'Полировка кузова', description: 'Восстановление блеска и устранение мелких дефектов лака.', category: 'Кузов', priceMinor: 2490000, durationMinutes: 600, bufferBeforeMinutes: 30, bufferAfterMinutes: 60, resourceTypes: ['any', 'coating']},
+];
+const TEMPLATE_RESOURCES = [
+  {slug: 'post-1', name: 'Пост 1', resourceType: 'any'},
+  {slug: 'post-2', name: 'Пост 2', resourceType: 'any'},
+  {slug: 'coating-post', name: 'Пост покрытия', resourceType: 'coating'},
+];
+const TEMPLATE_GALLERY = [
+  {id: 'work-1', image: '/placeholders/detailing-work-1.svg', caption: 'Зал и посты — замените на фото студии', position: 0},
+  {id: 'work-2', image: '/placeholders/detailing-work-2.svg', caption: 'Детали работы — замените на фото студии', position: 1},
+  {id: 'work-3', image: '/placeholders/detailing-work-3.svg', caption: 'Готовый результат — замените на фото студии', position: 2},
+];
+const TEMPLATE_INFO_CARDS = [
+  {id: 'care', title: 'Аккуратно', body: 'Опишите подход к работе и внимание к деталям.'},
+  {id: 'transparent', title: 'Прозрачно', body: 'Укажите, как согласуете перечень работ и стоимость.'},
+  {id: 'booking', title: 'По записи', body: 'Напишите, как выбрать удобное окно для визита.'},
+];
+const TEMPLATE_PROMPTS = ['Какие есть услуги?', 'Сколько стоит мойка?', 'Как найти студию?'];
 
 function isValidTimezone(value: unknown) {
   if (typeof value !== 'string' || !value) return false;
@@ -427,6 +485,12 @@ function toBusinessJson(
       slug: row['slug'],
       name: row['name'],
       resourceType: row['resource_type'] ?? 'any',
+      // Safe for `tenant:validate`: the CLI configSchema resource objects are
+      // non-strict, so this extra key is stripped (not rejected) on import.
+      // NOTE follow-up: scripts/tenants.mjs publish maps only
+      // slug/name/resourceType, so location does not round-trip through the
+      // CLI pipeline yet — the CLI agent owns that side.
+      location: row['location'] ?? '',
     })),
     gallery: tenant['gallery'] ?? [],
     infoCards: tenant['info_cards'] ?? [],
@@ -725,8 +789,13 @@ Deno.serve(async (request) => {
           await auditFailure(admin, user.id, 'admin.create', (clash as {id: string}).id, '', 'slug-taken');
           return json(request, {error: 'Tenant slug is already taken.'}, 409);
         }
-        // Draft shell only: every other column comes from safe DB defaults.
-        // Creates NO services/resources.
+        // Draft shell with safe DB defaults. template='detailing' (the default)
+        // additionally seeds the starter set defined above (services,
+        // resources, opening hours, gallery, info cards, prompts, placeholder
+        // hero/logo URLs); template='empty' keeps the bare shell with no
+        // services/resources. Identity fields stay empty for the admin.
+        // Seeding is creation-only: no triggers, no upsert-on-read elsewhere.
+        const useTemplate = args.template === 'detailing';
         const {data: created, error: createError} = await admin.from('tenants').insert({
           slug: args.slug,
           name: args.name.trim(),
@@ -740,16 +809,16 @@ Deno.serve(async (request) => {
           currency: args.currency,
           locale: 'ru-RU',
           accent_color: '#4690FF',
-          hero_image_url: '',
-          logo_url: '',
+          hero_image_url: useTemplate ? '/placeholders/detailing-hero.svg' : '',
+          logo_url: useTemplate ? '/placeholders/detailing-logo.svg' : '',
           is_demo: true,
           status: 'draft',
           booking_step_minutes: 30,
           cancellation_window_hours: 12,
-          opening_hours: [],
-          gallery: [],
-          info_cards: [],
-          assistant_prompts: [],
+          opening_hours: useTemplate ? TEMPLATE_OPENING_HOURS : [],
+          gallery: useTemplate ? TEMPLATE_GALLERY : [],
+          info_cards: useTemplate ? TEMPLATE_INFO_CARDS : [],
+          assistant_prompts: useTemplate ? TEMPLATE_PROMPTS : [],
         }).select(FULL_TENANT_COLUMNS).single();
         if (createError) {
           if ((createError as {code?: string})?.code === '23505') {
@@ -759,6 +828,32 @@ Deno.serve(async (request) => {
           throw createError;
         }
         const tenantId = (created as {id: string}).id;
+        if (useTemplate) {
+          // Upserts on (tenant_id,slug): a resumed attempt cannot duplicate
+          // rows. Throws (no audit row written) on failure, so a retry hits
+          // the slug-clash 409 above and needs manual cleanup via
+          // save-service/save-resource — documented, not silently reseeded.
+          const {error: seedServicesError} = await admin.from('services').upsert(
+            TEMPLATE_SERVICES.map((service) => ({
+              tenant_id: tenantId, slug: service.slug, name: service.name,
+              description: service.description, category: service.category,
+              price_minor: service.priceMinor, duration_minutes: service.durationMinutes,
+              buffer_before_minutes: service.bufferBeforeMinutes,
+              buffer_after_minutes: service.bufferAfterMinutes,
+              resource_types: service.resourceTypes, active: true,
+            })),
+            {onConflict: 'tenant_id,slug'},
+          );
+          if (seedServicesError) throw seedServicesError;
+          const {error: seedResourcesError} = await admin.from('resources').upsert(
+            TEMPLATE_RESOURCES.map((resource) => ({
+              tenant_id: tenantId, slug: resource.slug, name: resource.name,
+              resource_type: resource.resourceType, location: '', active: true,
+            })),
+            {onConflict: 'tenant_id,slug'},
+          );
+          if (seedResourcesError) throw seedResourcesError;
+        }
         const audit = await insertAudit(admin, {
           admin_user_id: user.id, action: 'admin.create', tenant_id: tenantId, appointment_id: null,
           reason: '',
@@ -766,7 +861,7 @@ Deno.serve(async (request) => {
           success: true, request_id: args.requestId,
         });
         if (audit.deduped) return json(request, {deduped: true});
-        return json(request, {created: true, tenant: created});
+        return json(request, {created: true, tenant: created, template: args.template});
       }
       case 'validate-tenant': {
         const args = validateTenantSchema.parse(params);
@@ -917,8 +1012,8 @@ Deno.serve(async (request) => {
         if (!tenant) return json(request, {error: 'Tenant not found.'}, 404);
         const resource = args.resource;
         const {data, error} = await admin.from('resources').upsert({
-          tenant_id: (tenant as {id: string}).id, slug: resource.slug, name: resource.name, resource_type: resource.resourceType, active: resource.active,
-        }, {onConflict: 'tenant_id,slug'}).select('id,slug,name,resource_type').single();
+          tenant_id: (tenant as {id: string}).id, slug: resource.slug, name: resource.name, resource_type: resource.resourceType, location: resource.location, active: resource.active,
+        }, {onConflict: 'tenant_id,slug'}).select('id,slug,name,resource_type,location').single();
         if (error) throw error;
         await insertAudit(admin, {
           admin_user_id: user.id, action: 'admin.save-resource', tenant_id: (tenant as {id: string}).id, appointment_id: null,

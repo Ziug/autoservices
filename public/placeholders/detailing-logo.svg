@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Заглушка логотипа детейлинг-студии">
+  <rect width="512" height="512" rx="120" fill="#111112"/>
+  <rect x="28" y="28" width="456" height="456" rx="104" fill="none" stroke="#4690FF" stroke-opacity="0.35" stroke-width="10"/>
+  <g fill="none" stroke="#4690FF" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M96 300h320l-32-96a56 56 0 0 0-56-40H184a56 56 0 0 0-56 40l-32 96Z"/>
+    <path d="M136 300v56m240-56v56M168 356h176"/>
+  </g>
+  <circle cx="176" cy="312" r="24" fill="#111112" stroke="#F2F5F9" stroke-width="10"/>
+  <circle cx="336" cy="312" r="24" fill="#111112" stroke="#F2F5F9" stroke-width="10"/>
+  <path d="M380 120c22 30 34 52 34 74a34 34 0 0 1-68 0c0-22 12-44 34-74Z" fill="#4690FF" fill-opacity="0.9"/>
+</svg>
