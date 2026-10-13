@@ -84,7 +84,10 @@
 
 .svc-price {
   flex: 0 0 auto;
+  max-width: 9rem;
+  text-align: end;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .svc-desc {

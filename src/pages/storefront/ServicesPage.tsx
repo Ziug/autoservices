@@ -15,6 +15,15 @@ function durationLabel(minutes: number) {
   return remaining ? `${hours} ч. ${remaining} мин.` : `${hours} ч.`;
 }
 
+function plural(count: number, one: string, few: string, many: string) {
+  const hundreds = count % 100;
+  const units = count % 10;
+  if (hundreds >= 11 && hundreds <= 14) return many;
+  if (units === 1) return one;
+  if (units >= 2 && units <= 4) return few;
+  return many;
+}
+
 export function ServicesPage() {
   const business = useTenant();
   const bookUrl = `/s/${business.slug}/booking`;
@@ -24,7 +33,7 @@ export function ServicesPage() {
       <header className="svc-heading" data-reveal>
         <p className="eyebrow">Прайс</p>
         <Heading className="svc-title" level={1}>Услуги и цены</Heading>
-        <Text color="secondary">Точная стоимость и продолжительность. Свободное время — на следующем шаге.</Text>
+        <Text color="secondary">{`${business.services.length} ${plural(business.services.length, 'услуга', 'услуги', 'услуг')}`} · точная стоимость и продолжительность. Свободное время — на следующем шаге.</Text>
       </header>
 
       {business.services.length ? (

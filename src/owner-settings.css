@@ -1,0 +1,282 @@
+/**
+ * Owner settings (cabinet) responsive layer.
+ *
+ * Scoped to `.owner-settings` only. No selectors target `.booking-*`,
+ * `.drawer-*`, or Astryx internals, so the protected booking popup and
+ * the public storefront are unaffected. Desktop appearance is preserved:
+ * all layout changes for existing components live inside the
+ * `max-width: 43.99rem` block (the project's established breakpoint).
+ */
+
+/* Anchor targets clear both sticky bars (topbar + settings nav). */
+.owner-settings .owner-panel[id] {
+  scroll-margin-top: calc(7rem + env(safe-area-inset-top));
+}
+
+/* Compact section navigation. */
+.owner-settings-nav {
+  position: sticky;
+  top: calc(3.5rem + env(safe-area-inset-top));
+  z-index: 5;
+  display: flex;
+  gap: var(--spacing-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0;
+  padding: var(--spacing-2);
+  border: var(--border-width) solid var(--ds-border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--ds-glass-bg);
+  backdrop-filter: blur(var(--ds-glass-blur)) saturate(var(--ds-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur)) saturate(var(--ds-glass-saturate));
+}
+
+.owner-settings-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.owner-settings-nav a {
+  flex: 0 0 auto;
+  min-height: 2.5rem;
+  padding: var(--spacing-2) var(--spacing-3);
+  border-radius: var(--radius-full);
+  color: var(--ds-text-2);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.owner-settings-nav a:active {
+  background: var(--ds-selected-bg);
+  color: var(--ds-text);
+}
+
+/* Expandable groups (profile sections, service cards, info cards,
+   exception form). Native <details> keeps fields mounted, so expanding
+   or collapsing never resets unsaved input values. */
+.set-group,
+.set-service,
+.set-card,
+.set-exception {
+  min-width: 0;
+  border: var(--border-width) solid var(--ds-border-subtle);
+  border-radius: var(--radius-container);
+  background: var(--ds-surface);
+}
+
+.set-group > summary,
+.set-service > summary,
+.set-card > summary,
+.set-exception > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  min-width: 0;
+  min-height: 3.25rem;
+  padding: var(--spacing-2) var(--spacing-4);
+  font-weight: 650;
+  cursor: pointer;
+  list-style: none;
+}
+
+.set-group > summary::-webkit-details-marker,
+.set-service > summary::-webkit-details-marker,
+.set-card > summary::-webkit-details-marker,
+.set-exception > summary::-webkit-details-marker {
+  display: none;
+}
+
+.set-group > summary::after,
+.set-service > summary::after,
+.set-card > summary::after,
+.set-exception > summary::after {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+  color: var(--ds-muted);
+  font-size: 1.2rem;
+  font-weight: 400;
+  line-height: 1;
+  content: '+';
+}
+
+.set-group[open] > summary::after,
+.set-service[open] > summary::after,
+.set-card[open] > summary::after,
+.set-exception[open] > summary::after {
+  content: '\2212';
+}
+
+.set-group > summary:focus-visible,
+.set-service > summary:focus-visible,
+.set-card > summary:focus-visible,
+.set-exception > summary:focus-visible {
+  outline: 2px solid var(--ds-focus-ring);
+  outline-offset: 2px;
+}
+
+.set-summary-copy {
+  display: grid;
+  gap: var(--spacing-0-5);
+  min-width: 0;
+}
+
+.set-summary-copy strong {
+  min-width: 0;
+  font-size: 0.95rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.set-summary-copy small {
+  color: var(--ds-text-2);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.set-status {
+  flex: 0 0 auto;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.set-status[data-active='true'] {
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent);
+}
+
+.set-status[data-active='false'] {
+  background: rgb(245 246 248 / 0.08);
+  color: var(--ds-muted);
+}
+
+/* Profile groups share one surrounding <form>; only the disclosure
+   chrome is added, submission semantics are unchanged. */
+.set-group .field-grid {
+  padding: var(--spacing-1) var(--spacing-4) var(--spacing-4);
+}
+
+.set-add > summary strong {
+  color: var(--ds-accent);
+}
+
+.set-service form,
+.set-card .form-panel {
+  border: 0;
+  border-top: var(--border-width) solid var(--ds-border-subtle);
+  border-radius: 0;
+  background: transparent;
+}
+
+.set-exception form {
+  padding: var(--spacing-1) var(--spacing-4) var(--spacing-4);
+}
+
+/* Closed days: time inputs are disabled (and excluded from submit, which
+   the existing saveForm already handles via the day checkbox). */
+.hours-editor-row[data-open='false'] .field input[type='time'] {
+  opacity: var(--ds-disabled-opacity);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .owner-settings-nav a {
+    transition: none;
+  }
+}
+
+@media (max-width: 43.99rem) {
+  /* Roomier tracks for iOS Safari's wide native time controls: shave
+     panel insets and control chrome so both time inputs fit ~330px. */
+  .owner-settings .owner-panel {
+    padding: var(--spacing-3);
+  }
+
+  /* Single-column fields: two-column grids would squeeze inputs to
+     ~130px at 320px widths. */
+  .owner-settings .field-grid.two-column {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Weekly hours: day label takes the first row, both time inputs share
+     the second row in two equal tracks. Time inputs get tighter padding
+     and type so both tracks fit ~300px content widths without overflow:
+     previously the default 12px input padding + 1rem type made each
+     track (especially in iOS Safari) slightly too wide. */
+  .owner-settings .hours-editor-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--spacing-3);
+    row-gap: var(--spacing-2);
+  }
+
+  .owner-settings .hours-editor-row > .checkbox-field {
+    grid-column: 1 / -1;
+    min-height: 2.5rem;
+    padding-block-end: 0;
+  }
+
+  .owner-settings .hours-editor-row .field {
+    min-width: 0;
+  }
+
+  .owner-settings .hours-editor-row .field input[type='time'] {
+    width: 100%;
+    min-width: 0;
+    padding-block: var(--spacing-2);
+    padding-inline: 0px;
+    font-size: 0.9rem;
+  }
+
+  /* Inline forms (post + exception editors) stack vertically. */
+  .owner-settings .inline-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .owner-settings .inline-form .field {
+    flex: none;
+  }
+
+  /* Gallery: responsive two-column photo cards. Caption and replace
+     controls stack under each thumbnail; per-photo wiring unchanged. */
+  .owner-settings .gallery-admin {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--spacing-2);
+  }
+
+  .owner-settings .gallery-admin-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: var(--spacing-2);
+    padding: var(--spacing-2);
+    border: var(--border-width) solid var(--ds-border-subtle);
+    border-radius: var(--radius-container);
+    background: var(--ds-surface);
+  }
+
+  .owner-settings .gallery-admin-row > img {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+  }
+
+  .owner-settings .gallery-admin-row .field input {
+    min-width: 0;
+  }
+}
+
+@media (min-width: 44rem) {
+  .owner-settings-nav {
+    top: 4rem;
+    flex-wrap: wrap;
+    overflow: visible;
+    border-radius: var(--radius-container);
+  }
+
+  /* Desktop keeps the established multi-column admin rows. */
+  .owner-settings .gallery-admin {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -1,4 +1,4 @@
-import {useRef, useState, type FormEvent} from 'react';
+import {useEffect, useRef, useState, type FormEvent} from 'react';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import {Plus, UploadSimple} from '@phosphor-icons/react';
 import {Button} from '@astryxdesign/core/Button';
@@ -11,10 +11,49 @@ import {hasSupabaseConfig, supabase} from '@/lib/supabase';
 
 const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
 
+/**
+ * Collapses `details[data-collapse-mobile]` on first render at phone
+ * widths. Attribute-only change: fields stay mounted, so expanding or
+ * collapsing never resets unsaved input values. Desktop keeps every
+ * group open, matching the current layout.
+ */
+function useCollapseOnMobile() {
+  const ref = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (window.matchMedia('(max-width: 43.99rem)').matches) {
+      ref.current?.querySelectorAll('details[data-collapse-mobile][open]').forEach((item) => item.removeAttribute('open'));
+    }
+  }, []);
+  return ref;
+}
+
+function durationLabel(minutes: number) {
+  if (minutes >= 1440) {
+    const days = Math.floor(minutes / 1440);
+    const remaining = minutes % 1440;
+    return remaining ? `${days} дн. ${Math.floor(remaining / 60)} ч.` : `${days} дн.`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remaining = minutes % 60;
+  return remaining ? `${hours} ч. ${remaining} мин.` : `${hours} ч.`;
+}
+
+function DayHoursRow({day, weekday, hours}: {day: string; weekday: number; hours?: {opensAt: string; closesAt: string}}) {
+  const [open, setOpen] = useState(Boolean(hours));
+  return (
+    <section className="hours-editor-row" data-open={open}>
+      <label className="checkbox-field"><input defaultChecked={open} name={`hours-open-${weekday}`} type="checkbox" onChange={(event) => setOpen(event.currentTarget.checked)} /><small>{day}</small></label>
+      <label className="field"><small>Открытие</small><input defaultValue={hours?.opensAt ?? '09:00'} name={`hours-start-${weekday}`} type="time" disabled={!open} /></label>
+      <label className="field"><small>Закрытие</small><input defaultValue={hours?.closesAt ?? '19:00'} name={`hours-end-${weekday}`} type="time" disabled={!open} /></label>
+    </section>
+  );
+}
+
 function SettingsForm({business}: {business: BusinessConfig}) {
   const [message, setMessage] = useState('');
   const [uploading, setUploading] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
+  const sectionRef = useCollapseOnMobile();
   const queryClient = useQueryClient();
   const save = useMutation({
     mutationFn: (profile: Record<string, unknown>) => ownerAction(business, 'update-profile', {profile}),
@@ -65,35 +104,51 @@ function SettingsForm({business}: {business: BusinessConfig}) {
   const weekdays = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
 
   return (
-    <section className="owner-panel">
+    <section className="owner-panel" id="set-profile" ref={sectionRef}>
       <header className="section-heading"><section><p className="eyebrow">Профиль</p><Heading level={2}>Данные студии</Heading></section><Text type="supporting">Их увидят посетители страницы и записи.</Text></header>
       <form className="field-grid two-column" onSubmit={saveForm} ref={formRef}>
-        {field('name', 'Название', business.name)}
-        {field('tagline', 'Короткий заголовок', business.tagline)}
-        <label className="field two-column-span"><small>Описание</small><textarea defaultValue={business.description} name="description" /></label>
-        {field('city', 'Город', business.city)}
-        {field('address', 'Адрес', business.address)}
-        {field('phone', 'Телефон', business.phone, 'tel')}
-        {field('mapUrl', 'Ссылка на карту', business.mapUrl, 'url')}
-        {field('timezone', 'Часовой пояс IANA', business.timezone)}
-        {field('currency', 'Валюта ISO', business.currency)}
-        {field('locale', 'Локаль', business.locale)}
-        {field('accentColor', 'Акцентный цвет', business.accentColor, 'color')}
-        {field('heroImage', 'Фото на главной', business.heroImage, 'url')}
-        <label className="upload-control"><UploadSimple aria-hidden="true" /><small>{uploading === 'heroImage' ? 'Загружаем фото…' : 'Загрузить фото на главную'}</small><input accept="image/jpeg,image/png,image/webp" disabled={business.demo || !hasSupabaseConfig || Boolean(uploading)} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void upload(file, 'heroImage'); event.currentTarget.value = ''; }} type="file" /></label>
-        {field('logoImage', 'Логотип', business.logoImage, 'url')}
-        <label className="upload-control"><UploadSimple aria-hidden="true" /><small>{uploading === 'logoImage' ? 'Загружаем логотип…' : 'Загрузить логотип'}</small><input accept="image/jpeg,image/png,image/webp" disabled={business.demo || !hasSupabaseConfig || Boolean(uploading)} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void upload(file, 'logoImage'); event.currentTarget.value = ''; }} type="file" /></label>
-        {field('bookingStepMinutes', 'Шаг расписания, минут', String(business.bookingStepMinutes), 'number')}
-        {field('cancellationWindowHours', 'Отмена не позднее, часов', String(business.cancellationWindowHours), 'number')}
+        <details className="set-group two-column-span" open>
+          <summary>Основная информация</summary>
+          <section className="field-grid two-column">
+            {field('name', 'Название', business.name)}
+            {field('tagline', 'Короткий заголовок', business.tagline)}
+            <label className="field two-column-span"><small>Описание</small><textarea defaultValue={business.description} name="description" /></label>
+          </section>
+        </details>
+        <details className="set-group two-column-span" open data-collapse-mobile>
+          <summary>Контакты и адрес</summary>
+          <section className="field-grid two-column">
+            {field('city', 'Город', business.city)}
+            {field('address', 'Адрес', business.address)}
+            {field('phone', 'Телефон', business.phone, 'tel')}
+            {field('mapUrl', 'Ссылка на карту', business.mapUrl, 'url')}
+          </section>
+        </details>
+        <details className="set-group two-column-span" open data-collapse-mobile>
+          <summary>Оформление</summary>
+          <section className="field-grid two-column">
+            {field('currency', 'Валюта ISO', business.currency)}
+            {field('locale', 'Локаль', business.locale)}
+            {field('accentColor', 'Акцентный цвет', business.accentColor, 'color')}
+            {field('heroImage', 'Фото на главной', business.heroImage, 'url')}
+            <label className="upload-control"><UploadSimple aria-hidden="true" /><small>{uploading === 'heroImage' ? 'Загружаем фото…' : 'Загрузить фото на главную'}</small><input accept="image/jpeg,image/png,image/webp" disabled={business.demo || !hasSupabaseConfig || Boolean(uploading)} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void upload(file, 'heroImage'); event.currentTarget.value = ''; }} type="file" /></label>
+            {field('logoImage', 'Логотип', business.logoImage, 'url')}
+            <label className="upload-control"><UploadSimple aria-hidden="true" /><small>{uploading === 'logoImage' ? 'Загружаем логотип…' : 'Загрузить логотип'}</small><input accept="image/jpeg,image/png,image/webp" disabled={business.demo || !hasSupabaseConfig || Boolean(uploading)} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void upload(file, 'logoImage'); event.currentTarget.value = ''; }} type="file" /></label>
+          </section>
+        </details>
+        <details className="set-group two-column-span" open data-collapse-mobile>
+          <summary>Расписание и отмена</summary>
+          <section className="field-grid two-column">
+            {field('timezone', 'Часовой пояс IANA', business.timezone)}
+            {field('bookingStepMinutes', 'Шаг расписания, минут', String(business.bookingStepMinutes), 'number')}
+            {field('cancellationWindowHours', 'Отмена не позднее, часов', String(business.cancellationWindowHours), 'number')}
+          </section>
+        </details>
         <section className="field-grid two-column-span">
           <header className="section-heading"><section><Heading level={3}>Еженедельный график</Heading><Text type="supporting">Снимите отметку у закрытых дней и измените часы работы.</Text></section></header>
           {weekdays.map((day, weekday) => {
             const hours = business.openingHours.find((item) => item.weekday === weekday);
-            return <section className="hours-editor-row" key={weekday}>
-              <label className="checkbox-field"><input defaultChecked={Boolean(hours)} name={`hours-open-${weekday}`} type="checkbox" /><small>{day}</small></label>
-              <label className="field"><small>Открытие</small><input defaultValue={hours?.opensAt ?? '09:00'} name={`hours-start-${weekday}`} type="time" /></label>
-              <label className="field"><small>Закрытие</small><input defaultValue={hours?.closesAt ?? '19:00'} name={`hours-end-${weekday}`} type="time" /></label>
-            </section>;
+            return <DayHoursRow day={day} weekday={weekday} key={weekday} hours={hours} />;
           })}
         </section>
         <Button label="Сохранить данные студии" type="submit" variant="primary" isLoading={save.isPending} />
@@ -106,6 +161,7 @@ function SettingsForm({business}: {business: BusinessConfig}) {
 function ServiceEditor({business}: {business: BusinessConfig}) {
   const [notice, setNotice] = useState('');
   const queryClient = useQueryClient();
+  const sectionRef = useCollapseOnMobile();
   const mutation = useMutation({
     mutationFn: (service: Service) => ownerAction(business, 'save-service', {service}),
     onSuccess: async () => { setNotice('Услуга сохранена.'); await queryClient.invalidateQueries({predicate: (query) => query.queryKey[1] === business.slug}); },
@@ -126,38 +182,51 @@ function ServiceEditor({business}: {business: BusinessConfig}) {
     mutation.mutate(service);
   };
   return (
-    <section className="owner-panel">
+    <section className="owner-panel" id="set-services" ref={sectionRef}>
       <header className="section-heading"><section><p className="eyebrow">Прайс и время</p><Heading level={2}>Услуги</Heading></section></header>
-      {business.services.map((service) => <form className="form-panel service-editor" key={service.slug} onSubmit={(event) => save(event, service)}>
-        <section className="field-grid two-column">
-          <label className="field"><small>Название</small><input defaultValue={service.name} name="name" required /></label>
-          <label className="field"><small>Адрес услуги</small><input defaultValue={service.slug} name="slug" required /></label>
-          <label className="field"><small>Описание</small><input defaultValue={service.description} name="description" /></label>
-          <label className="field"><small>Категория</small><input defaultValue={service.category} name="category" required /></label>
-          <label className="field"><small>Цена ({business.currency})</small><input defaultValue={service.priceMinor / 100} min="0" name="price" step="0.01" type="number" /></label>
-          <label className="field"><small>Длительность, минут</small><input defaultValue={service.durationMinutes} min="1" name="duration" type="number" /></label>
-          <label className="field"><small>Подготовка до, минут</small><input defaultValue={service.bufferBeforeMinutes} min="0" name="before" type="number" /></label>
-          <label className="field"><small>Подготовка после, минут</small><input defaultValue={service.bufferAfterMinutes} min="0" name="after" type="number" /></label>
-          <label className="field"><small>Типы постов через запятую</small><input defaultValue={service.resourceTypes.join(', ')} name="resourceTypes" /></label>
-          <label className="field checkbox-field"><input defaultChecked={service.active} name="active" type="checkbox" /><small>Услуга доступна для записи</small></label>
-        </section>
-        <Button label="Сохранить услугу" size="sm" type="submit" variant="secondary" isLoading={mutation.isPending} />
-      </form>)}
-      <form className="form-panel service-editor" onSubmit={(event) => save(event)}>
-        <Heading level={3}>Добавить услугу</Heading>
-        <section className="field-grid two-column">
-          <label className="field"><small>Название</small><input name="name" required /></label>
-          <label className="field"><small>Адрес услуги</small><input name="slug" required /></label>
-          <label className="field"><small>Описание</small><input name="description" /></label>
-          <label className="field"><small>Категория</small><input defaultValue="Уход" name="category" required /></label>
-          <label className="field"><small>Цена ({business.currency})</small><input min="0" name="price" step="0.01" type="number" /></label>
-          <label className="field"><small>Длительность, минут</small><input defaultValue="60" min="1" name="duration" type="number" /></label>
-          <label className="field"><small>Подготовка до, минут</small><input defaultValue="0" min="0" name="before" type="number" /></label>
-          <label className="field"><small>Подготовка после, минут</small><input defaultValue="0" min="0" name="after" type="number" /></label>
-          <label className="field"><small>Типы постов через запятую</small><input defaultValue="any" name="resourceTypes" /></label>
-        </section>
-        <Button label="Добавить услугу" size="sm" type="submit" variant="primary" isLoading={mutation.isPending} />
-      </form>
+      {business.services.map((service) => (
+        <details className="set-service" key={service.slug} open data-collapse-mobile>
+          <summary>
+            <section className="set-summary-copy">
+              <strong>{service.name}</strong>
+              <small>{service.priceMinor ? `${service.priceMinor / 100} ${business.currency}` : 'Бесплатно'} · {durationLabel(service.durationMinutes)}</small>
+            </section>
+            <small className="set-status" data-active={service.active}>{service.active ? 'Активна' : 'Скрыта'}</small>
+          </summary>
+          <form className="form-panel service-editor" onSubmit={(event) => save(event, service)}>
+            <section className="field-grid two-column">
+              <label className="field"><small>Название</small><input defaultValue={service.name} name="name" required /></label>
+              <label className="field"><small>Адрес услуги</small><input defaultValue={service.slug} name="slug" required /></label>
+              <label className="field"><small>Описание</small><input defaultValue={service.description} name="description" /></label>
+              <label className="field"><small>Категория</small><input defaultValue={service.category} name="category" required /></label>
+              <label className="field"><small>Цена ({business.currency})</small><input defaultValue={service.priceMinor / 100} min="0" name="price" step="0.01" type="number" /></label>
+              <label className="field"><small>Длительность, минут</small><input defaultValue={service.durationMinutes} min="1" name="duration" type="number" /></label>
+              <label className="field"><small>Подготовка до, минут</small><input defaultValue={service.bufferBeforeMinutes} min="0" name="before" type="number" /></label>
+              <label className="field"><small>Подготовка после, минут</small><input defaultValue={service.bufferAfterMinutes} min="0" name="after" type="number" /></label>
+              <label className="field"><small>Типы постов через запятую</small><input defaultValue={service.resourceTypes.join(', ')} name="resourceTypes" /></label>
+              <label className="field checkbox-field"><input defaultChecked={service.active} name="active" type="checkbox" /><small>Услуга доступна для записи</small></label>
+            </section>
+            <Button label="Сохранить услугу" size="sm" type="submit" variant="secondary" isLoading={mutation.isPending} />
+          </form>
+        </details>
+      ))}
+      <details className="set-service set-add" open>
+        <summary><strong>Добавить услугу</strong></summary>
+        <form className="form-panel service-editor" onSubmit={(event) => save(event)}>
+          <section className="field-grid two-column">
+            <label className="field"><small>Название</small><input name="name" required /></label>
+            <label className="field"><small>Адрес услуги</small><input name="slug" required /></label>
+            <label className="field"><small>Описание</small><input name="description" /></label>
+            <label className="field"><small>Категория</small><input defaultValue="Уход" name="category" required /></label>
+            <label className="field"><small>Цена ({business.currency})</small><input min="0" name="price" step="0.01" type="number" /></label>
+            <label className="field"><small>Длительность, минут</small><input defaultValue="60" min="1" name="duration" type="number" /></label>
+            <label className="field"><small>Подготовка до, минут</small><input defaultValue="0" min="0" name="before" type="number" /></label>
+            <label className="field"><small>Подготовка после, минут</small><input defaultValue="0" min="0" name="after" type="number" /></label>
+            <label className="field"><small>Типы постов через запятую</small><input defaultValue="any" name="resourceTypes" /></label>
+          </section>
+          <Button label="Добавить услугу" size="sm" type="submit" variant="primary" isLoading={mutation.isPending} />
+        </form>
+      </details>
       {notice ? <p className={mutation.isError ? 'form-error' : 'form-success'} role="status">{notice}</p> : null}
     </section>
   );
@@ -177,7 +246,7 @@ function ResourceEditor({business}: {business: BusinessConfig}) {
     mutation.mutate({slug: String(data.get('slug')).trim().toLowerCase().replaceAll(' ', '-'), name: String(data.get('name')).trim(), resourceType: String(data.get('resourceType')).trim(), active: data.get('active') === 'on'});
   };
   return (
-    <section className="owner-panel">
+    <section className="owner-panel" id="set-resources">
       <header className="section-heading"><section><p className="eyebrow">Занятость</p><Heading level={2}>Рабочие посты</Heading></section></header>
       <section className="service-list">{business.resources.map((resource) => <Text key={resource.slug}>{resource.name} · {resource.resourceType}</Text>)}</section>
       <form className="inline-form" onSubmit={save}>
@@ -193,6 +262,7 @@ function ResourceEditor({business}: {business: BusinessConfig}) {
 
 function HoursEditor({business}: {business: BusinessConfig}) {
   const [message, setMessage] = useState('');
+  const sectionRef = useCollapseOnMobile();
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: (override: Record<string, unknown>) => ownerAction(business, 'save-date-override', {override}),
@@ -206,17 +276,20 @@ function HoursEditor({business}: {business: BusinessConfig}) {
     mutation.mutate({localDate: data.get('localDate'), isClosed, opensAt: isClosed ? null : data.get('opensAt'), closesAt: isClosed ? null : data.get('closesAt'), label: data.get('label')});
   };
   return (
-    <section className="owner-panel">
+    <section className="owner-panel" id="set-calendar" ref={sectionRef}>
       <header className="section-heading"><section><p className="eyebrow">Календарь</p><Heading level={2}>Выходные и особые часы</Heading></section></header>
-      <section className="opening-hours">{business.openingHours.map((hours) => <p className="time-label" key={hours.weekday}><small>{['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'][hours.weekday]}</small><strong>{hours.opensAt}–{hours.closesAt}</strong></p>)}</section>
-      <form className="inline-form" onSubmit={submit}>
-        <label className="field"><small>Дата</small><input name="localDate" required type="date" /></label>
-        <label className="field"><small>Открытие</small><input defaultValue="09:00" name="opensAt" type="time" /></label>
-        <label className="field"><small>Закрытие</small><input defaultValue="19:00" name="closesAt" type="time" /></label>
-        <label className="field"><small>Подпись</small><input name="label" placeholder="Например, праздник" /></label>
-        <label className="checkbox-field"><input name="isClosed" type="checkbox" /><small>Выходной</small></label>
-        <Button label="Сохранить дату" type="submit" variant="secondary" isLoading={mutation.isPending} />
-      </form>
+      <section className="opening-hours">{business.openingHours.map((hours) => <p className="time-label" key={hours.weekday}>{['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'][hours.weekday]}<strong>{hours.opensAt}–{hours.closesAt}</strong></p>)}</section>
+      <details className="set-exception" open data-collapse-mobile>
+        <summary>Добавить исключение</summary>
+        <form className="inline-form" onSubmit={submit}>
+          <label className="field"><small>Дата</small><input name="localDate" required type="date" /></label>
+          <label className="field"><small>Открытие</small><input defaultValue="09:00" name="opensAt" type="time" /></label>
+          <label className="field"><small>Закрытие</small><input defaultValue="19:00" name="closesAt" type="time" /></label>
+          <label className="field"><small>Подпись</small><input name="label" placeholder="Например, праздник" /></label>
+          <label className="checkbox-field"><input name="isClosed" type="checkbox" /><small>Выходной</small></label>
+          <Button label="Сохранить дату" type="submit" variant="secondary" isLoading={mutation.isPending} />
+        </form>
+      </details>
       {message ? <p className={mutation.isError ? 'form-error' : 'form-success'} role="status">{message}</p> : null}
     </section>
   );
@@ -224,6 +297,7 @@ function HoursEditor({business}: {business: BusinessConfig}) {
 
 function InfoCardsEditor({business}: {business: BusinessConfig}) {
   const [message, setMessage] = useState('');
+  const sectionRef = useCollapseOnMobile();
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: (infoCards: BusinessConfig['infoCards']) => ownerAction(business, 'update-profile', {profile: {infoCards}}),
@@ -231,18 +305,27 @@ function InfoCardsEditor({business}: {business: BusinessConfig}) {
     onError: (error) => setMessage(error instanceof Error ? error.message : 'Не удалось сохранить карточки.'),
   });
   return (
-    <section className="owner-panel">
+    <section className="owner-panel" id="set-cards" ref={sectionRef}>
       <header className="section-heading"><section><p className="eyebrow">Главная страница</p><Heading level={2}>Информационные карточки</Heading></section></header>
       <form className="field-grid" onSubmit={(event) => {
         event.preventDefault();
         const data = new FormData(event.currentTarget);
         mutation.mutate(business.infoCards.map((item, index) => ({id: item.id, title: String(data.get(`title-${index}`)).trim(), body: String(data.get(`body-${index}`)).trim()})));
       }}>
-        {business.infoCards.map((item, index) => <section className="form-panel" key={item.id}>
-          <Heading level={3}>Карточка {index + 1}</Heading>
-          <label className="field"><small>Заголовок</small><input defaultValue={item.title} name={`title-${index}`} required /></label>
-          <label className="field"><small>Текст</small><textarea defaultValue={item.body} name={`body-${index}`} required /></label>
-        </section>)}
+        {business.infoCards.map((item, index) => (
+          <details className="set-card" key={item.id} open data-collapse-mobile>
+            <summary>
+              <section className="set-summary-copy">
+                <strong>Карточка {index + 1}</strong>
+                <small>{item.title}</small>
+              </section>
+            </summary>
+            <section className="form-panel">
+              <label className="field"><small>Заголовок</small><input defaultValue={item.title} name={`title-${index}`} required /></label>
+              <label className="field"><small>Текст</small><textarea defaultValue={item.body} name={`body-${index}`} required /></label>
+            </section>
+          </details>
+        ))}
         <Button label="Сохранить карточки" type="submit" variant="secondary" isLoading={mutation.isPending} />
       </form>
       {message ? <p className={mutation.isError ? 'form-error' : 'form-success'} role="status">{message}</p> : null}
@@ -281,7 +364,7 @@ function GalleryEditor({business}: {business: BusinessConfig}) {
     save.mutate(business.gallery.map((photo) => photo.id === id ? {...photo, ...changes} : photo));
   };
   return (
-    <section className="owner-panel">
+    <section className="owner-panel" id="set-gallery">
       <header className="section-heading"><section><p className="eyebrow">Примеры работ</p><Heading level={2}>Галерея</Heading></section><Text type="supporting">Добавление сохраняет все существующие фотографии.</Text></header>
       <label className="upload-control"><UploadSimple aria-hidden="true" /><small>Добавить фотографию</small><input accept="image/jpeg,image/png,image/webp" disabled={business.demo || !hasSupabaseConfig || uploading} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void upload(file); event.currentTarget.value = ''; }} type="file" /></label>
       {business.gallery.length ? <section className="gallery-admin">{business.gallery.map((photo) => <article className="gallery-admin-row" key={photo.id}>
@@ -313,10 +396,18 @@ export function OwnerSettingsPage() {
   const businessQuery = useQuery({queryKey: ['tenant-settings', business.slug], queryFn: () => loadBusiness(business.slug, {includeInactive: true}), enabled: hasSupabaseConfig});
   const current = businessQuery.data ?? business;
   return (
-    <section className="owner-page">
+    <section className="owner-page owner-settings">
       <header className="owner-heading"><section className="owner-heading-copy"><p className="eyebrow">Управление студией</p><Heading level={1}>Настройки</Heading><Text color="secondary">Обновите публичные данные, прайс, занятость и материалы главной страницы.</Text></section></header>
       {business.demo ? <p className="preview-pill" role="note">В демо-режиме изменения применяются только в этом браузере.</p> : null}
       {businessQuery.isError ? <p className="form-error" role="alert">{businessQuery.error instanceof Error ? businessQuery.error.message : 'Не удалось загрузить настройки.'}</p> : null}
+      <nav className="owner-settings-nav" aria-label="Разделы настроек">
+        <a href="#set-profile">Профиль</a>
+        <a href="#set-services">Услуги</a>
+        <a href="#set-resources">Посты</a>
+        <a href="#set-calendar">Календарь</a>
+        <a href="#set-cards">Карточки</a>
+        <a href="#set-gallery">Галерея</a>
+      </nav>
       <SettingsForm business={current} />
       <ServiceEditor business={current} />
       <ResourceEditor business={current} />

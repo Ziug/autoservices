@@ -1,5 +1,5 @@
 import {Link} from 'react-router-dom';
-import {ArrowRight, CaretRight, Clock, MapPin, Phone} from '@phosphor-icons/react';
+import {ArrowRight, CalendarPlus, CaretRight, Clock, MapPin, Phone, Tag, Warehouse, Wrench} from '@phosphor-icons/react';
 import {formatInTimeZone} from 'date-fns-tz';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
@@ -59,9 +59,8 @@ export function StorefrontPage() {
   const todayWeekday = Number(formatInTimeZone(new Date(), business.timezone, 'i')) % 7;
   const telHref = `tel:${business.phone.replaceAll(' ', '')}`;
   const stats = [
-    {value: business.services.length, label: plural(business.services.length, 'услуга', 'услуги', 'услуг')},
-    ...(business.gallery.length ? [{value: business.gallery.length, label: plural(business.gallery.length, 'работа', 'работы', 'работ')}] : []),
-    {value: business.resources.length, label: plural(business.resources.length, 'пост', 'поста', 'постов')},
+    {icon: <Wrench weight="regular" aria-hidden="true" />, value: business.services.length, label: `${plural(business.services.length, 'услуга', 'услуги', 'услуг')} в прайсе`},
+    {icon: <Warehouse weight="regular" aria-hidden="true" />, value: business.resources.length, label: `${plural(business.resources.length, 'бокс', 'бокса', 'боксов')} в работе`},
   ];
 
   return (
@@ -80,10 +79,10 @@ export function StorefrontPage() {
         <header className="sf-identity">
           <Text className="sf-tagline" color="secondary">{business.tagline}</Text>
         </header>
-        <section className="sf-stats" data-count={stats.length} aria-label="О студии в цифрах">
+        <section className="sf-stats" aria-label="О студии в цифрах">
           {stats.map((stat) => (
             <section className="sf-stat" key={stat.label}>
-              <strong>{stat.value}</strong>
+              <section className="sf-stat-top">{stat.icon}<strong>{stat.value}</strong></section>
               <small>{stat.label}</small>
             </section>
           ))}
@@ -100,13 +99,14 @@ export function StorefrontPage() {
           if (!entry) return null;
           return (
             <Link
-              className="sf-entry-row"
+              className="sf-price-row"
               to={servicesUrl}
               aria-label={`Услуги студии, ${entry.cheapestName}, ${entry.priceLabel}, открыть каталог`}
             >
-              <section className="sf-entry-copy">
-                <strong>Услуги студии</strong>
-                <small>{entry.cheapestName} · {entry.priceLabel}</small>
+              <section className="sf-price-icon" aria-hidden="true"><Tag weight="regular" /></section>
+              <section className="sf-price-copy">
+                <small>Услуги студии · {entry.cheapestName}</small>
+                <strong>{entry.priceLabel}</strong>
               </section>
               <ArrowRight className="sf-entry-arrow" weight="bold" aria-hidden="true" />
             </Link>
@@ -115,15 +115,30 @@ export function StorefrontPage() {
       </section>
 
       <section className="content-section" data-liquid-ignore data-reveal>
+        <Heading className="sf-book-heading" level={2}>Запись в студию</Heading>
+        <Link className="sf-book-card" to={bookUrl} aria-label={`Открыть запись в ${business.name}`}>
+          <section className="sf-book-copy">
+            <strong>Запись за пару минут</strong>
+            <Text color="secondary">Выберите услугу — свободные окна покажем до подтверждения.</Text>
+          </section>
+          <section className="sf-book-icon" aria-hidden="true"><CalendarPlus weight="regular" /></section>
+        </Link>
+      </section>
+
+      <section className="content-section" data-liquid-ignore data-reveal>
         <header className="section-heading"><section><p className="eyebrow">Работы</p><Heading level={2}>Внимание к деталям</Heading></section></header>
-        <section className="gallery-grid">
-          {business.gallery.map((photo) => (
-            <article className="gallery-card" key={photo.id}>
-              <img className="gallery-image" src={photo.image} alt={photo.caption} loading="lazy" onError={(event) => { event.currentTarget.src = business.logoImage; }} />
-              <strong className="gallery-caption">{photo.caption}</strong>
-            </article>
-          ))}
-        </section>
+        {business.gallery.length ? (
+          <section className="gallery-grid">
+            {business.gallery.map((photo) => (
+              <article className="gallery-card" key={photo.id}>
+                <img className="gallery-image" src={photo.image} alt={photo.caption} loading="lazy" onError={(event) => { event.currentTarget.src = business.logoImage; }} />
+                <strong className="gallery-caption">{photo.caption}</strong>
+              </article>
+            ))}
+          </section>
+        ) : (
+          <p className="empty-state">Фотографий работ пока нет — загляните позже.</p>
+        )}
       </section>
 
       <section className="content-section" data-liquid-ignore data-reveal>
