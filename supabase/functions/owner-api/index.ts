@@ -447,12 +447,8 @@ Deno.serve(async (request)=>{
     }
   } catch (error) {
     const status = error?.status ?? errorStatus(error);
-    const detail = (error as {details?: string; message?: string})?.details
-      ?? (error as {message?: string})?.message
-      ?? 'unknown';
-    console.error('owner-api error:', JSON.stringify({action: input.action, code: (error as {code?: string})?.code, status, detail}));
-    return json(request, {
-      error: errorMessage(error)
-    }, status);
+    const detail = (error as {details?: string})?.details ?? (error as {message?: string})?.message ?? 'unknown';
+    console.error('owner-api error:', JSON.stringify({code: (error as {code?: string})?.code, status, detail}));
+    return json(request, {error: errorMessage(error)}, status);
   }
 });
