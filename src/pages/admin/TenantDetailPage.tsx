@@ -6,6 +6,7 @@ import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
+import {Card} from '@astryxdesign/core/Card';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {HStack, VStack} from '@astryxdesign/core/Stack';
@@ -18,8 +19,11 @@ import {AdminAreaHeading} from '@/pages/admin/AdminLayout';
 import {adminUrl} from '@/lib/admin-config';
 import {
   archiveTenant,
+  createOwner,
+  deleteOwner,
   getTenantDetail,
   listAudit,
+  listOwners,
   listResources,
   listServices,
   listTenantAppointments,
@@ -28,8 +32,10 @@ import {
   reactivateTenant,
   suspendTenant,
   unarchiveTenant,
+  updateOwner,
   type AdminAppointmentRow,
   type AdminAuditEntry,
+  type AdminOwnerRow,
   type AdminPaymentRow,
   type AdminResourceRow,
   type AdminServiceRow,
@@ -42,6 +48,7 @@ const TABS = [
   {value: 'appointments', label: 'Записи'},
   {value: 'services', label: 'Услуги'},
   {value: 'resources', label: 'Ресурсы и часы'},
+  {value: 'owners', label: 'Владельцы'},
   {value: 'payments', label: 'Оплаты'},
   {value: 'settings', label: 'Настройки'},
   {value: 'audit', label: 'Журнал'},
@@ -192,6 +199,17 @@ export function TenantDetailPage() {
   const [archiveReason, setArchiveReason] = useState('');
   const [requestId, setRequestId] = useState('');
   const [notice, setNotice] = useState<{kind: 'success' | 'error'; text: string} | null>(null);
+  const [ownerLogin, setOwnerLogin] = useState('');
+  const [ownerPassword, setOwnerPassword] = useState('');
+  const [ownerEmail, setOwnerEmail] = useState('');
+  const [ownerRole, setOwnerRole] = useState<'owner' | 'manager'>('owner');
+  const [ownerNotice, setOwnerNotice] = useState<{kind: 'success' | 'error'; text: string} | null>(null);
+  const [passwordFor, setPasswordFor] = useState('');
+  const [passwordValue, setPasswordValue] = useState('');
+  const [contactFor, setContactFor] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactRole, setContactRole] = useState<'owner' | 'manager' | 'staff'>('owner');
+  const [deleteFor, setDeleteFor] = useState('');
 
   const detailQuery = useQuery({queryKey: ['admin-tenant', tenantId], queryFn: () => getTenantDetail(tenantId), enabled: Boolean(tenantId), staleTime: 15_000});
   const servicesQuery = useQuery({
@@ -224,6 +242,12 @@ export function TenantDetailPage() {
     enabled: Boolean(tenantId) && tab === 'audit',
     staleTime: 15_000,
   });
+  const ownersQuery = useQuery({
+    queryKey: ['admin-tenant-owners', tenantId],
+    queryFn: () => listOwners(tenantId),
+    enabled: Boolean(tenantId) && tab === 'owners',
+    staleTime: 15_000,
+  });
 
   const refresh = async () => {
     await queryClient.invalidateQueries({queryKey: ['admin-tenant', tenantId]});
@@ -251,6 +275,53 @@ export function TenantDetailPage() {
       await refresh();
     },
     onError: (caught) => setNotice({kind: 'error', text: caught instanceof Error ? caught.message : 'Не удалось сохранить изменение.'}),
+  });
+
+  const ownerMutation = useMutation({
+    mutationFn: async (input:
+      | {kind: 'create'}
+      | {kind: 'password'; username: string}
+      | {kind: 'contact'; username: string}
+      | {kind: 'delete'; username: string}) => {
+      if (input.kind === 'create') {
+        return createOwner({
+          tenantId,
+          username: ownerLogin,
+          password: ownerPassword,
+          recoveryEmail: ownerEmail.trim() || undefined,
+          role: ownerRole,
+          requestId: newRequestId(),
+        });
+      }
+      if (input.kind === 'password') return updateOwner(tenantId, input.username, {password: passwordValue});
+      if (input.kind === 'contact') {
+        return updateOwner(tenantId, input.username, {recoveryEmail: contactEmail.trim(), role: contactRole});
+      }
+      return deleteOwner(tenantId, input.username, newRequestId());
+    },
+    onSuccess: async (result, input) => {
+      if (result && typeof result === 'object' && 'deduped' in result && result.deduped) {
+        setOwnerNotice({kind: 'success', text: 'Повтор уже учтён: доступ уже создан ранее.'});
+      } else if (input.kind === 'create') {
+        setOwnerNotice({kind: 'success', text: `Доступ создан: логин ${ownerLogin.trim().toLowerCase()}. Передайте его владельцу вместе с паролем.`});
+        setOwnerLogin('');
+        setOwnerPassword('');
+        setOwnerEmail('');
+      } else if (input.kind === 'password') {
+        setOwnerNotice({kind: 'success', text: `Новый пароль для ${input.username} сохранён. Передайте его владельцу.`});
+        setPasswordFor('');
+        setPasswordValue('');
+      } else if (input.kind === 'contact') {
+        setOwnerNotice({kind: 'success', text: `Контакты ${input.username} обновлены.`});
+        setContactFor('');
+      } else {
+        setOwnerNotice({kind: 'success', text: `Доступ ${input.username} удалён.`});
+        setDeleteFor('');
+      }
+      await queryClient.invalidateQueries({queryKey: ['admin-tenant-owners', tenantId]});
+      await queryClient.invalidateQueries({queryKey: ['admin-tenant-audit', tenantId]});
+    },
+    onError: (caught) => setOwnerNotice({kind: 'error', text: caught instanceof Error ? caught.message : 'Не удалось сохранить доступ.'}),
   });
 
   const openSuspend = () => {
@@ -441,6 +512,217 @@ export function TenantDetailPage() {
               <Text key={hours.weekday} type="supporting">
                 {WEEKDAYS[hours.weekday] ?? `День ${hours.weekday}`}: {hours.opensAt}–{hours.closesAt}
               </Text>
+            ))}
+          </VStack>
+        </section>
+      ) : null}
+
+      {tab === 'owners' ? (
+        <section className="admin-tab-panel" role="tabpanel" aria-label="Доступы владельцев">
+          <Heading level={2}>Владельцы</Heading>
+          <Text type="supporting" color="secondary">
+            Доступ создаётся только здесь: логин и пароль. Почта необязательна — она нужна лишь чтобы связаться с владельцем
+            (например, передать новый пароль). Для входа почта не используется.
+          </Text>
+          {ownerNotice ? (
+            <Banner
+              status={ownerNotice.kind}
+              title={ownerNotice.kind === 'success' ? 'Готово' : 'Не удалось сохранить'}
+              description={ownerNotice.text}
+              isDismissable
+              onDismiss={() => setOwnerNotice(null)}
+            />
+          ) : null}
+          <VStack gap={2}>
+            <Heading level={3}>Новый доступ</Heading>
+            <form
+              className="admin-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setOwnerNotice(null);
+                ownerMutation.mutate({kind: 'create'});
+              }}
+            >
+              <section className="admin-grid-2">
+                <label className="admin-field">
+                  <small>Логин (3–32: a-z, 0–9, точка, _, -)</small>
+                  <input
+                    autoComplete="off"
+                    maxLength={32}
+                    placeholder="naprimer-studio"
+                    value={ownerLogin}
+                    onChange={(event) => setOwnerLogin(event.currentTarget.value)}
+                    aria-label="Логин владельца"
+                    required
+                  />
+                </label>
+                <label className="admin-field">
+                  <small>Пароль (минимум 8 символов)</small>
+                  <input
+                    autoComplete="new-password"
+                    minLength={8}
+                    type="password"
+                    value={ownerPassword}
+                    onChange={(event) => setOwnerPassword(event.currentTarget.value)}
+                    aria-label="Пароль владельца"
+                    required
+                  />
+                </label>
+                <label className="admin-field">
+                  <small>Почта для связи (необязательно)</small>
+                  <input
+                    autoComplete="off"
+                    placeholder="owner@example.com"
+                    type="email"
+                    value={ownerEmail}
+                    onChange={(event) => setOwnerEmail(event.currentTarget.value)}
+                    aria-label="Почта владельца для связи"
+                  />
+                </label>
+                <label className="admin-field admin-field-select">
+                  <small>Роль</small>
+                  <select value={ownerRole} onChange={(event) => setOwnerRole(event.currentTarget.value as 'owner' | 'manager')} aria-label="Роль владельца">
+                    <option value="owner">Владелец</option>
+                    <option value="manager">Управляющий</option>
+                  </select>
+                </label>
+              </section>
+              <Button
+                label="Создать доступ"
+                type="submit"
+                variant="primary"
+                isLoading={ownerMutation.isPending}
+                isDisabled={!ownerLogin.trim() || ownerPassword.length < 8}
+              />
+            </form>
+          </VStack>
+          <VStack gap={2}>
+            <Heading level={3}>Выданные доступы</Heading>
+            {ownersQuery.isError ? (
+              <Banner
+                status="error"
+                title="Не удалось загрузить доступы"
+                description={ownersQuery.error instanceof Error ? ownersQuery.error.message : 'Попробуйте позже.'}
+              />
+            ) : null}
+            {ownersQuery.data && ownersQuery.data.length === 0 ? (
+              <EmptyState title="Доступов нет" description="Создайте первый доступ выше — владелец войдёт по логину и паролю." />
+            ) : null}
+            {(ownersQuery.data ?? []).map((owner: AdminOwnerRow) => (
+              <Card key={owner.username}>
+                <VStack gap={2}>
+                  <HStack gap={2}>
+                    <Text>
+                      <strong>{owner.username}</strong> · {owner.role}
+                    </Text>
+                  </HStack>
+                  <Text type="supporting" color="secondary">
+                    Почта для связи: {owner.recoveryEmail || '—'}
+                  </Text>
+                  {passwordFor === owner.username ? (
+                    <form
+                      className="admin-form"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        ownerMutation.mutate({kind: 'password', username: owner.username});
+                      }}
+                    >
+                      <label className="admin-field">
+                        <small>Новый пароль (минимум 8 символов)</small>
+                        <input
+                          autoComplete="new-password"
+                          minLength={8}
+                          type="password"
+                          value={passwordValue}
+                          onChange={(event) => setPasswordValue(event.currentTarget.value)}
+                          aria-label={`Новый пароль для ${owner.username}`}
+                          required
+                        />
+                      </label>
+                      <HStack gap={2}>
+                        <Button label="Отмена" variant="ghost" onClick={() => { setPasswordFor(''); setPasswordValue(''); }} />
+                        <Button
+                          label="Сохранить пароль"
+                          type="submit"
+                          variant="primary"
+                          isLoading={ownerMutation.isPending}
+                          isDisabled={passwordValue.length < 8}
+                        />
+                      </HStack>
+                    </form>
+                  ) : contactFor === owner.username ? (
+                    <form
+                      className="admin-form"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        ownerMutation.mutate({kind: 'contact', username: owner.username});
+                      }}
+                    >
+                      <section className="admin-grid-2">
+                        <label className="admin-field">
+                          <small>Почта для связи (пусто — убрать)</small>
+                          <input
+                            autoComplete="off"
+                            type="email"
+                            value={contactEmail}
+                            onChange={(event) => setContactEmail(event.currentTarget.value)}
+                            aria-label={`Почта для ${owner.username}`}
+                          />
+                        </label>
+                        <label className="admin-field admin-field-select">
+                          <small>Роль</small>
+                          <select
+                            value={contactRole}
+                            onChange={(event) => setContactRole(event.currentTarget.value as 'owner' | 'manager' | 'staff')}
+                            aria-label={`Роль для ${owner.username}`}
+                          >
+                            <option value="owner">Владелец</option>
+                            <option value="manager">Управляющий</option>
+                            <option value="staff">Сотрудник</option>
+                          </select>
+                        </label>
+                      </section>
+                      <HStack gap={2}>
+                        <Button label="Отмена" variant="ghost" onClick={() => setContactFor('')} />
+                        <Button label="Сохранить" type="submit" variant="primary" isLoading={ownerMutation.isPending} />
+                      </HStack>
+                    </form>
+                  ) : deleteFor === owner.username ? (
+                    <HStack gap={2}>
+                      <Text type="supporting">Удалить доступ {owner.username} без возможности восстановления?</Text>
+                      <Button label="Отмена" variant="ghost" onClick={() => setDeleteFor('')} />
+                      <Button
+                        label="Удалить"
+                        variant="destructive"
+                        isLoading={ownerMutation.isPending}
+                        onClick={() => ownerMutation.mutate({kind: 'delete', username: owner.username})}
+                      />
+                    </HStack>
+                  ) : (
+                    <HStack gap={2}>
+                      <Button
+                        label="Новый пароль"
+                        variant="secondary"
+                        onClick={() => { setContactFor(''); setDeleteFor(''); setPasswordFor(owner.username); setPasswordValue(''); setOwnerNotice(null); }}
+                      />
+                      <Button
+                        label="Почта и роль"
+                        variant="secondary"
+                        onClick={() => {
+                          setPasswordFor(''); setDeleteFor(''); setContactFor(owner.username);
+                          setContactEmail(owner.recoveryEmail); setContactRole((owner.role as 'owner' | 'manager' | 'staff') ?? 'owner');
+                          setOwnerNotice(null);
+                        }}
+                      />
+                      <Button
+                        label="Удалить"
+                        variant="ghost"
+                        onClick={() => { setPasswordFor(''); setContactFor(''); setDeleteFor(owner.username); setOwnerNotice(null); }}
+                      />
+                    </HStack>
+                  )}
+                </VStack>
+              </Card>
             ))}
           </VStack>
         </section>

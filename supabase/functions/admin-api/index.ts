@@ -27,6 +27,13 @@ import {adminClient, checkRateLimit, errorMessage, errorStatus, forbiddenOrigin,
 //   contact refused), export-tenant (business.json shape for the CLI pipeline,
 //   resources carry `location`).
 //   Publish/activate never touch services/resources/appointments/payments.
+// - Owner accounts: list-owners (read-only roster), create-owner
+//   (username + password + optional recovery contact email), update-owner
+//   (new password and/or recovery email and/or role), delete-owner (remove
+//   membership; deletes the auth user only when it has no other memberships).
+//   Auth email is always the synthetic internal address
+//   <username>@owners.local (created email-confirmed); the recovery email is
+//   contact info only and is never used for login.
 
 const NOT_FOUND = {error: 'Not found.'} as const;
 
@@ -38,7 +45,18 @@ const slug = z.string().regex(/^[a-z0-9-]+$/);
 const strictSlug = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/).min(1).max(100);
 const tenantStatus = z.enum(['draft', 'preview', 'live', 'paused']);
 const appointmentStatus = z.enum(['confirmed', 'checked_in', 'in_progress', 'completed', 'cancelled', 'no_show']);
-const auditAction = z.enum(['admin.login', 'admin.suspend', 'admin.reactivate', 'admin.archive', 'admin.unarchive', 'admin.view', 'admin.create', 'admin.publish', 'admin.activate', 'admin.update', 'admin.save-service', 'admin.save-resource', 'admin.save-date-override']);
+const auditAction = z.enum(['admin.login', 'admin.suspend', 'admin.reactivate', 'admin.archive', 'admin.unarchive', 'admin.view', 'admin.create', 'admin.publish', 'admin.activate', 'admin.update', 'admin.save-service', 'admin.save-resource', 'admin.save-date-override', 'admin.create-owner', 'admin.update-owner', 'admin.delete-owner']);
+// Owner login identity: canonical lowercase username; auth uses a synthetic
+// internal address so no real email is ever required. Must stay in sync with
+// `ownerEmailFor` in src/lib/tenant-api.ts.
+const OWNER_AUTH_DOMAIN = 'owners.local';
+const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,31}$/;
+const ownerUsername = z.string().trim().toLowerCase().regex(USERNAME_PATTERN, 'username must be 3..32 chars: a-z, 0-9, dot, underscore, hyphen');
+const ownerPassword = z.string().min(8, 'password must be at least 8 characters').max(72);
+const recoveryEmail = z.union([z.literal(''), z.email().max(320)]).default('');
+function ownerAuthEmail(username: string) {
+  return `${username}@${OWNER_AUTH_DOMAIN}`;
+}
 const reasonInput = z.string().trim().min(5).max(500);
 const optionalNote = z.string().trim().max(500).default('');
 const pagination = {
@@ -141,6 +159,23 @@ const saveServiceSchema = z.object({tenantId: uuid, service: adminServiceSchema}
 const saveResourceSchema = z.object({tenantId: uuid, resource: z.object({slug: strictSlug, name: z.string().trim().min(1).max(100), resourceType: z.string().min(1).max(40), location: z.string().trim().max(120).default(''), active: z.boolean().default(true)}).strict()}).strict();
 const saveDateOverrideSchema = z.object({tenantId: uuid, override: z.object({localDate: z.iso.date(), isClosed: z.boolean(), opensAt: z.string().regex(/^\d{2}:\d{2}$/).nullable(), closesAt: z.string().regex(/^\d{2}:\d{2}$/).nullable(), label: z.string().max(120).default('')}).strict()}).strict();
 const listOverridesSchema = z.object({tenantId: uuid}).strict();
+const listOwnersSchema = z.object({tenantId: uuid}).strict();
+const createOwnerSchema = z.object({
+  tenantId: uuid,
+  username: ownerUsername,
+  password: ownerPassword,
+  recoveryEmail,
+  role: z.enum(['owner', 'manager']).default('owner'),
+  requestId: uuid,
+}).strict();
+const updateOwnerSchema = z.object({
+  tenantId: uuid,
+  username: ownerUsername,
+  password: ownerPassword.optional(),
+  recoveryEmail: z.union([z.literal(''), z.email().max(320)]).optional(),
+  role: z.enum(['owner', 'manager', 'staff']).optional(),
+}).strict();
+const deleteOwnerSchema = z.object({tenantId: uuid, username: ownerUsername, requestId: uuid}).strict();
 const auditListSchema = z.object({
   tenantId: uuid.optional(),
   action: auditAction.optional(),
@@ -1049,6 +1084,168 @@ Deno.serve(async (request) => {
           .eq('tenant_id', (tenant as {id: string}).id).order('local_date');
         if (error) throw error;
         return json(request, {overrides: data ?? []});
+      }
+      case 'list-owners': {
+        const args = listOwnersSchema.parse(params);
+        const tenant = await adminTenantById(admin, args.tenantId);
+        if (!tenant) return json(request, {error: 'Tenant not found.'}, 404);
+        const {data, error} = await admin.from('tenant_memberships')
+          .select('username,role,recovery_email,created_at')
+          .eq('tenant_id', (tenant as {id: string}).id).order('created_at');
+        if (error) throw error;
+        return json(request, {
+          owners: ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+            username: String(row['username'] ?? ''),
+            role: String(row['role'] ?? 'owner'),
+            recoveryEmail: String(row['recovery_email'] ?? ''),
+            createdAt: String(row['created_at'] ?? ''),
+          })),
+        });
+      }
+      case 'create-owner': {
+        const args = createOwnerSchema.parse(params);
+        if (await findAuditByRequestId(admin, args.requestId)) return json(request, {deduped: true});
+        const tenant = await adminTenantById(admin, args.tenantId);
+        if (!tenant) {
+          await auditFailure(admin, user.id, 'admin.create-owner', args.tenantId, '', 'tenant-not-found');
+          return json(request, {error: 'Tenant not found.'}, 404);
+        }
+        const tenantId = (tenant as {id: string}).id;
+        const {data: taken, error: takenError} = await admin.from('tenant_memberships')
+          .select('tenant_id').eq('username', args.username).limit(1);
+        if (takenError) throw takenError;
+        if (taken && taken.length > 0) {
+          await auditFailure(admin, user.id, 'admin.create-owner', tenantId, '', 'username-taken');
+          return json(request, {error: 'This login is already taken. Choose another username.'}, 409);
+        }
+        const authEmail = ownerAuthEmail(args.username);
+        const {data: created, error: createError} = await admin.auth.admin.createUser({
+          email: authEmail,
+          password: args.password,
+          email_confirm: true,
+          user_metadata: {username: args.username},
+        });
+        if (createError || !created?.user) {
+          const detail = createError?.message ?? 'auth-create-failed';
+          await auditFailure(admin, user.id, 'admin.create-owner', tenantId, '', detail.slice(0, 200));
+          if (/already|exists|registered|duplicate/i.test(detail)) {
+            return json(request, {error: 'This login is already used by another account. Pick another username.'}, 409);
+          }
+          throw createError ?? new Error('Could not create the owner account.');
+        }
+        const {error: memberError} = await admin.from('tenant_memberships').upsert({
+          tenant_id: tenantId, user_id: created.user.id, role: args.role,
+          username: args.username, recovery_email: args.recoveryEmail || '',
+        }, {onConflict: 'tenant_id,user_id'});
+        if (memberError) {
+          // Roll back the orphaned auth user; the retry will hit the
+          // requestId dedupe only after a successful audit row, so a failed
+          // attempt stays safely retryable.
+          try {
+            await admin.auth.admin.deleteUser(created.user.id);
+          } catch {
+            // Best effort: the username-taken check above prevents reuse.
+          }
+          throw memberError;
+        }
+        const audit = await insertAudit(admin, {
+          admin_user_id: user.id, action: 'admin.create-owner', tenant_id: tenantId, appointment_id: null,
+          reason: '',
+          metadata: {tenant_id: tenantId, username: args.username, role: args.role, request_id: args.requestId},
+          success: true, request_id: args.requestId,
+        });
+        if (audit.deduped) return json(request, {deduped: true});
+        return json(request, {
+          created: true,
+          owner: {username: args.username, role: args.role, recoveryEmail: args.recoveryEmail || ''},
+        });
+      }
+      case 'update-owner': {
+        const args = updateOwnerSchema.parse(params);
+        if (args.password === undefined && args.recoveryEmail === undefined && args.role === undefined) {
+          return json(request, {error: 'Nothing to update: provide a new password, recovery email, or role.'}, 400);
+        }
+        const tenant = await adminTenantById(admin, args.tenantId);
+        if (!tenant) return json(request, {error: 'Tenant not found.'}, 404);
+        const tenantId = (tenant as {id: string}).id;
+        const {data: member, error: memberError} = await admin.from('tenant_memberships')
+          .select('user_id,role,recovery_email').eq('tenant_id', tenantId).eq('username', args.username).maybeSingle();
+        if (memberError) throw memberError;
+        if (!member) return json(request, {error: 'Owner not found in this studio.'}, 404);
+        const userId = (member as {user_id: string}).user_id;
+        const changed: string[] = [];
+        if (args.role !== undefined && args.role !== (member as {role: string}).role) {
+          const {error: roleError} = await admin.from('tenant_memberships')
+            .update({role: args.role}).eq('tenant_id', tenantId).eq('user_id', userId);
+          if (roleError) throw roleError;
+          changed.push('role');
+        }
+        if (args.recoveryEmail !== undefined) {
+          const {error: mailError} = await admin.from('tenant_memberships')
+            .update({recovery_email: args.recoveryEmail || ''}).eq('tenant_id', tenantId).eq('user_id', userId);
+          if (mailError) throw mailError;
+          changed.push('recoveryEmail');
+        }
+        if (args.password !== undefined) {
+          // Migrate legacy real-email accounts to the synthetic login address
+          // so username login keeps working after the reset.
+          const {data: authUser, error: getError} = await admin.auth.admin.getUserById(userId);
+          if (getError) throw getError;
+          const synthetic = ownerAuthEmail(args.username);
+          if (authUser?.user && authUser.user.email !== synthetic) {
+            const {error: mailError} = await admin.auth.admin.updateUserById(userId, {email: synthetic, email_confirm: true});
+            if (mailError) throw mailError;
+          }
+          const {error: passError} = await admin.auth.admin.updateUserById(userId, {password: args.password});
+          if (passError) throw passError;
+          changed.push('password');
+        }
+        await insertAudit(admin, {
+          admin_user_id: user.id, action: 'admin.update-owner', tenant_id: tenantId, appointment_id: null,
+          reason: '',
+          metadata: {tenant_id: tenantId, username: args.username, fields: changed},
+          success: true, request_id: '',
+        });
+        return json(request, {saved: true, fields: changed});
+      }
+      case 'delete-owner': {
+        const args = deleteOwnerSchema.parse(params);
+        if (await findAuditByRequestId(admin, args.requestId)) return json(request, {deduped: true});
+        const tenant = await adminTenantById(admin, args.tenantId);
+        if (!tenant) {
+          await auditFailure(admin, user.id, 'admin.delete-owner', args.tenantId, '', 'tenant-not-found');
+          return json(request, {error: 'Tenant not found.'}, 404);
+        }
+        const tenantId = (tenant as {id: string}).id;
+        const {data: member, error: memberError} = await admin.from('tenant_memberships')
+          .select('user_id').eq('tenant_id', tenantId).eq('username', args.username).maybeSingle();
+        if (memberError) throw memberError;
+        if (!member) {
+          await auditFailure(admin, user.id, 'admin.delete-owner', tenantId, '', 'owner-not-found');
+          return json(request, {error: 'Owner not found in this studio.'}, 404);
+        }
+        const userId = (member as {user_id: string}).user_id;
+        const {error: removeError} = await admin.from('tenant_memberships')
+          .delete().eq('tenant_id', tenantId).eq('user_id', userId);
+        if (removeError) throw removeError;
+        // Delete the auth user only when it belongs to no other studio.
+        const {data: remaining, error: remainingError} = await admin.from('tenant_memberships')
+          .select('tenant_id').eq('user_id', userId).limit(1);
+        if (remainingError) throw remainingError;
+        let authUserDeleted = false;
+        if (!remaining || remaining.length === 0) {
+          const {error: deleteError} = await admin.auth.admin.deleteUser(userId);
+          if (deleteError) throw deleteError;
+          authUserDeleted = true;
+        }
+        const audit = await insertAudit(admin, {
+          admin_user_id: user.id, action: 'admin.delete-owner', tenant_id: tenantId, appointment_id: null,
+          reason: '',
+          metadata: {tenant_id: tenantId, username: args.username, request_id: args.requestId},
+          success: true, request_id: args.requestId,
+        });
+        if (audit.deduped) return json(request, {deduped: true});
+        return json(request, {deleted: true, authUserDeleted});
       }
       case 'audit-list': {
         const args = auditListSchema.parse(params);        let query = admin.from('admin_audit_log').select(AUDIT_COLUMNS, {count: 'exact'})

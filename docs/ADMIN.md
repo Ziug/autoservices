@@ -60,6 +60,10 @@ pnpm dlx supabase@latest functions deploy admin-api   # verify_jwt=true, БЕЗ 
   `admin.publish`, `admin.activate`.
 - `202610140002_admin_studio_update.sql` — действия аудита `admin.update`,
   `admin.save-service`, `admin.save-resource`, `admin.save-date-override`.
+- `202610160001_owner_username_auth.sql` — колонка `tenant_memberships.username`
+  (уникальный логин владельца).
+- `202610170001_owner_accounts.sql` — необязательная `recovery_email` для связи
+  + действия аудита `admin.create-owner`, `admin.update-owner`, `admin.delete-owner`.
 
 ## 4. Создание студий: черновик → настройка → публикация → активация
 
@@ -136,12 +140,18 @@ Supabase (server-only): `APP_ANON_KEY`, `APP_SERVICE_ROLE_KEY`,
 `NOTIFICATION_CRON_SECRET`, LLM/VAPID — как в `.env.example`.
 Никогда не ставьте `*_SERVICE_ROLE_*`/`BOOKING_TOKEN_SECRET` в `VITE_*`.
 
-## 8. Сброс пароля
+## 8. Доступы владельцев и сброс пароля
 
-В панели и кабинете владельца есть ссылка «Забыли пароль?» (`/reset-password`
-→ письмо → `/update-password`). Добавьте в Supabase Dashboard → Authentication
-→ URL Configuration → Redirect URLs адрес `https://<домен>/update-password`,
-иначе письмо со ссылкой будет отклонено.
+Доступ владельца создаётся только в панели: карточка студии → вкладка
+«Владельцы». Обязательны только **логин** (3–32: `a-z 0–9 . _ -`) и **пароль**
+(≥8 символов); **почта необязательна** и служит лишь контактом для связи.
+Для входа почта не используется: auth идёт на внутренний адрес
+`<логин>@owners.local`. Сброс пароля — кнопка «Новый пароль» у доступа;
+передайте новый пароль владельцу лично (или на оставленную почту).
+Страница `/reset-password` → письмо → `/update-password` относится только к
+администраторам с реальной почтой. Добавьте в Supabase Dashboard →
+Authentication → URL Configuration → Redirect URLs адрес
+`https://<домен>/update-password`, иначе письмо со ссылкой будет отклонено.
 
 ## 9. Ограничения
 

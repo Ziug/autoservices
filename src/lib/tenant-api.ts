@@ -101,22 +101,43 @@ export async function cancelAppointment(business: BusinessConfig, appointmentId:
   return data as {cancelled: boolean};
 }
 
-export async function signInOwner(identifier: string, password: string) {
+/**
+ * Internal auth domain for username-only owner logins. The browser NEVER sees
+ * a service-role key: login is a plain signInWithPassword against the
+ * synthetic address <username>@owners.local created (email-confirmed) by the
+ * admin panel. Must stay in sync with OWNER_AUTH_DOMAIN in
+ * supabase/functions/admin-api/index.ts.
+ */
+export const OWNER_AUTH_DOMAIN = 'owners.local';
+
+export function ownerEmailFor(username: string): string {
+  return `${username.trim().toLowerCase()}@${OWNER_AUTH_DOMAIN}`;
+}
+
+export async function signInOwner(identifier: string, password: string, slug?: string) {
   const client = requireSupabase();
-  const {data: membership, error: lookupError} = await client.from('tenant_memberships')
-    .select('user_id, username')
-    .eq('username', identifier.toLowerCase())
-    .single();
-  if (lookupError || !membership) {
-    throw new Error('Имя пользователя не найдено.');
+  const clean = identifier.trim();
+  // Legacy identifiers containing '@' are treated as raw auth emails (lets
+  // pre-migration accounts keep working until an admin resets them).
+  const email = clean.includes('@') ? clean : ownerEmailFor(clean);
+  const {data, error} = await client.auth.signInWithPassword({email, password});
+  if (error) throw new Error('Неверный логин или пароль.');
+  // When signing in from a studio page, confirm the account actually belongs
+  // to this studio; otherwise sign out so no foreign session lingers.
+  if (slug) {
+    const {data: tenant, error: tenantError} = await client.from('tenants')
+      .select('id').eq('slug', slug).maybeSingle();
+    if (tenantError || !tenant) {
+      await client.auth.signOut();
+      throw new Error('Студия не найдена.');
+    }
+    const {data: membership, error: memberError} = await client.from('tenant_memberships')
+      .select('user_id').eq('tenant_id', (tenant as {id: string}).id).eq('user_id', data.user.id).maybeSingle();
+    if (memberError || !membership) {
+      await client.auth.signOut();
+      throw new Error('У этой учётной записи нет доступа к студии.');
+    }
   }
-  const userId = membership.user_id;
-  const {data: authUser, error: userError} = await client.auth.admin.getUserById(userId);
-  if (userError || !authUser?.user?.email) {
-    throw new Error('Не удалось найти email пользователя.');
-  }
-  const {data, error} = await client.auth.signInWithPassword({email: authUser.user.email, password});
-  if (error) throw new Error(error.message);
   return data.user;
 }
 

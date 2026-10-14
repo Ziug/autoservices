@@ -39,6 +39,11 @@
  *   save-resource { tenantId, resource (...+ optional location≤120) } -> { resource }
  *     Same unrecognized-key retry as create-tenant applies to `location`.
  *   save-date-override { tenantId, override } -> { override }
+ *   list-owners { tenantId } -> { owners: [{ username, role, recoveryEmail, createdAt }] }
+ *   create-owner { tenantId, username, password, recoveryEmail?, role?, requestId }
+ *     -> { created } | { deduped: true } (username-only login; recovery email optional)
+ *   update-owner { tenantId, username, password?, recoveryEmail?, role? } -> { saved, fields }
+ *   delete-owner { tenantId, username, requestId } -> { deleted, authUserDeleted }
  *
  * Mutations are idempotent via client-generated `requestId` (createClientId);
  * replays return { deduped: true } and are treated as success.
@@ -172,6 +177,17 @@ function toValidationReport(raw: Record<string, unknown>): ValidationReport {
 
 export function newRequestId(): string {
   return createClientId();
+}
+
+/** Canonical owner login form: lowercase, trimmed. Mirrors the server regex. */
+const OWNER_USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,31}$/;
+
+export function normalizeOwnerUsername(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+export function isValidOwnerUsername(value: string): boolean {
+  return OWNER_USERNAME_PATTERN.test(normalizeOwnerUsername(value));
 }
 
 /** Map the directory UI filter to exact server params (strict schema — no extras). */
@@ -612,6 +628,66 @@ export async function saveAdminResource(tenantId: string, resource: Record<strin
 
 export async function saveAdminDateOverride(tenantId: string, override: Record<string, unknown>) {
   return invokeAdmin<{override?: Record<string, unknown>}>('save-date-override', {tenantId, override});
+}
+
+export interface AdminOwnerRow extends Record<string, unknown> {
+  username: string;
+  role: string;
+  /** Optional contact email for password hand-off. Never used for login. */
+  recoveryEmail: string;
+  createdAt: string;
+}
+
+export type AdminOwnerRole = 'owner' | 'manager' | 'staff';
+
+export async function listOwners(tenantId: string): Promise<AdminOwnerRow[]> {
+  const raw = await invokeAdmin<{owners?: Record<string, unknown>[]}>('list-owners', {tenantId});
+  return (Array.isArray(raw.owners) ? raw.owners : []).map((row) => ({
+    ...row,
+    username: str(row.username),
+    role: str(row.role, 'owner'),
+    recoveryEmail: str(row.recoveryEmail ?? row.recovery_email),
+    createdAt: str(row.createdAt ?? row.created_at),
+  }));
+}
+
+export async function createOwner(input: {
+  tenantId: string;
+  username: string;
+  password: string;
+  recoveryEmail?: string;
+  role?: 'owner' | 'manager';
+  requestId: string;
+}) {
+  const body: Record<string, unknown> = {
+    tenantId: input.tenantId,
+    username: input.username.trim().toLowerCase(),
+    password: input.password,
+    role: input.role ?? 'owner',
+    requestId: input.requestId,
+  };
+  if (input.recoveryEmail?.trim()) body.recoveryEmail = input.recoveryEmail.trim();
+  return invokeAdmin<{created?: boolean; deduped?: boolean; owner?: Record<string, unknown>}>('create-owner', body);
+}
+
+export async function updateOwner(
+  tenantId: string,
+  username: string,
+  patch: {password?: string; recoveryEmail?: string; role?: AdminOwnerRole},
+) {
+  const body: Record<string, unknown> = {tenantId, username: username.trim().toLowerCase()};
+  if (patch.password !== undefined) body.password = patch.password;
+  if (patch.recoveryEmail !== undefined) body.recoveryEmail = patch.recoveryEmail.trim();
+  if (patch.role !== undefined) body.role = patch.role;
+  return invokeAdmin<{saved?: boolean; fields?: string[]}>('update-owner', body);
+}
+
+export async function deleteOwner(tenantId: string, username: string, requestId: string) {
+  return invokeAdmin<{deleted?: boolean; deduped?: boolean; authUserDeleted?: boolean}>('delete-owner', {
+    tenantId,
+    username: username.trim().toLowerCase(),
+    requestId,
+  });
 }
 
 export interface AdminDateOverrideRow extends Record<string, unknown> {
