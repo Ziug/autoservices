@@ -204,7 +204,7 @@ Deno.serve(async (request)=>{
             serviceSlug: z.string().regex(/^[a-z0-9-]+$/).optional(),
             name: z.string().trim().min(2).max(100).optional(),
             priceMinor: z.number().int().min(1).max(1000000000000).optional()
-          }).strict().refine((value)=>Boolean(value.serviceSlug) !== Boolean(value.name && value.priceMinor !== undefined), 'Provide either serviceSlug (catalog service) or name + priceMinor (custom service).').parse(input);
+          }).strip().refine((value)=>Boolean(value.serviceSlug) !== Boolean(value.name && value.priceMinor !== undefined), 'Provide either serviceSlug (catalog service) or name + priceMinor (custom service).').parse(input);
           const { data: appointment, error: appointmentError } = await admin.from('appointments').select('id').eq('tenant_id', tenant.id).eq('id', args.appointmentId).maybeSingle();
           if (appointmentError) throw appointmentError;
           if (!appointment) return json(request, {
@@ -258,7 +258,7 @@ Deno.serve(async (request)=>{
             appointmentId: z.uuid(),
             requestId: z.uuid().optional(),
             body: z.string().trim().min(1).max(1000)
-          }).strict().parse(input);
+          }).strip().parse(input);
           const { data: appointment, error: appointmentError } = await admin.from('appointments').select('id').eq('tenant_id', tenant.id).eq('id', args.appointmentId).maybeSingle();
           if (appointmentError) throw appointmentError;
           if (!appointment) return json(request, {

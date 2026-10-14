@@ -187,7 +187,7 @@ describe('owner dashboard order handling', () => {
     });
     mockFrom.mockImplementation((table: string) => tablesWith([row()])(table));
     render(<Page business={studio()} />);
-    fireEvent.click(await screen.findByRole('button', {name: '+ Доп. услуга'}));
+    fireEvent.click(await screen.findByRole('button', {name: 'Доп. услуга'}));
     const catalogSelect = await screen.findByLabelText('Услуга из каталога');
     fireEvent.change(catalogSelect, {target: {value: 'polish'}});
     fireEvent.click(screen.getByRole('button', {name: 'Добавить'}));
@@ -210,7 +210,8 @@ describe('owner dashboard order handling', () => {
     });
     mockFrom.mockImplementation((table: string) => tablesWith([row()])(table));
     render(<Page business={studio()} />);
-    fireEvent.click(await screen.findByRole('button', {name: '+ Доп. услуга'}));
+    fireEvent.click(await screen.findByRole('button', {name: 'Доп. услуга'}));
+    fireEvent.click(await screen.findByRole('radio', {name: 'Своя услуга'}));
     fireEvent.change(await screen.findByLabelText('Название своей услуги'), {target: {value: 'Химчистка сидений'}});
     fireEvent.change(screen.getByLabelText('Цена своей услуги'), {target: {value: '3000'}});
     fireEvent.click(screen.getByRole('button', {name: 'Добавить'}));
@@ -229,7 +230,7 @@ describe('owner dashboard order handling', () => {
     });
     mockFrom.mockImplementation((table: string) => tablesWith([row()])(table));
     render(<Page business={studio()} />);
-    fireEvent.click(await screen.findByRole('button', {name: '+ Доп. услуга'}));
+    fireEvent.click(await screen.findByRole('button', {name: 'Доп. услуга'}));
     fireEvent.change(await screen.findByLabelText('Услуга из каталога'), {target: {value: 'wash'}});
     const add = screen.getByRole('button', {name: 'Добавить'});
     fireEvent.click(add);

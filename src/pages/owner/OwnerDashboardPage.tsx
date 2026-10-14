@@ -52,13 +52,20 @@ function statusAction(status: Appointment['status']) {
   return null;
 }
 
-/** "+ Доп. услуга": catalog picker or custom name+price, with live total preview. */
+/**
+ * Доп. услуга: the owner picks ONE of two modes.
+ *  - catalog: choose an existing service (price from the catalog record)
+ *  - custom:  small form with name + price
+ * The two paths are mutually exclusive; a custom entry is never overridden
+ * by the catalog selection.
+ */
 function ExtraServiceForm({appointment, order, business, mutation}: {
   appointment: Appointment;
   order: OwnerOrder;
   business: ReturnType<typeof useTenant>;
   mutation: ReturnType<typeof useMutation<unknown, Error, {action: string; payload: Record<string, unknown>}>>;
 }) {
+  const [mode, setMode] = useState<'catalog' | 'custom'>('catalog');
   const [catalogSlug, setCatalogSlug] = useState(business.services[0]?.slug ?? '');
   const [customName, setCustomName] = useState('');
   const [customPrice, setCustomPrice] = useState('');
@@ -67,46 +74,56 @@ function ExtraServiceForm({appointment, order, business, mutation}: {
   const requestId = useRef(createClientId());
   const customMinor = amountToMinor(customPrice);
   const catalogService = business.services.find((item) => item.slug === catalogSlug);
-  const previewMinor = catalogService ? catalogService.priceMinor : customMinor;
-  const canSubmit = Boolean(catalogService?.slug)
-    ? Boolean(catalogSlug)
-    : isValidCustomExtra(customName, customMinor);
+  const previewMinor = mode === 'custom' ? customMinor ?? 0 : catalogService?.priceMinor ?? 0;
+  const customValid = isValidCustomExtra(customName, customMinor);
+  const canSubmit = mode === 'custom' ? customValid : Boolean(catalogService?.slug);
+
+  const switchMode = (next: 'catalog' | 'custom') => {
+    setMode(next);
+    setError('');
+  };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (mutation.isPending) return;
     setError('');
-    if (catalogService) {
-      mutation.mutate({action: 'add-extra-service', payload: {appointmentId: appointment.id, requestId: requestId.current, serviceSlug: catalogSlug}});
+    if (mode === 'custom') {
+      if (!customValid) { setError('Укажите название (2–100 символов) и цену больше нуля.'); return; }
+      mutation.mutate({action: 'add-extra-service', payload: {appointmentId: appointment.id, requestId: requestId.current, name: customName.trim(), priceMinor: customMinor}});
       return;
     }
-    if (!isValidCustomExtra(customName, customMinor)) {
-      setError('Укажите название (2–100 символов) и цену больше нуля.');
-      return;
-    }
-    mutation.mutate({action: 'add-extra-service', payload: {appointmentId: appointment.id, requestId: requestId.current, name: customName.trim(), priceMinor: customMinor}});
+    if (!catalogService) { setError('Выберите услугу из каталога.'); return; }
+    mutation.mutate({action: 'add-extra-service', payload: {appointmentId: appointment.id, requestId: requestId.current, serviceSlug: catalogSlug}});
   };
 
   const totals = computeOrderTotals(appointment.priceMinor, order.extras);
   return (
     <form className="inline-form extra-service-form" onSubmit={submit}>
-      <label className="field">
-        <small>Услуга из каталога</small>
-        <select aria-label="Услуга из каталога" onChange={(event) => setCatalogSlug(event.currentTarget.value)} value={catalogSlug}>
-          {business.services.map((service) => <option key={service.slug} value={service.slug}>{service.name} — {money(service.priceMinor, business.currency, business.locale)}</option>)}
-        </select>
-      </label>
-      <Text type="supporting" color="secondary">или своя услуга:</Text>
-      <label className="field">
-        <small>Название</small>
-        <input aria-label="Название своей услуги" maxLength={100} onChange={(event) => setCustomName(event.currentTarget.value)} placeholder="Например, химчистка сидений" value={customName} />
-      </label>
-      <label className="field">
-        <small>Цена ({business.currency})</small>
-        <input aria-label="Цена своей услуги" inputMode="decimal" min="0.01" onChange={(event) => setCustomPrice(event.currentTarget.value)} placeholder="Например, 3000" step="0.01" type="number" value={customPrice} />
-      </label>
+      <section className="extra-service-modes" role="radiogroup" aria-label="Тип доп. услуги">
+        <button aria-checked={mode === 'catalog'} className="mode-chip" onClick={() => switchMode('catalog')} role="radio" type="button">Из каталога</button>
+        <button aria-checked={mode === 'custom'} className="mode-chip" onClick={() => switchMode('custom')} role="radio" type="button">Своя услуга</button>
+      </section>
+      {mode === 'catalog' ? (
+        <label className="field">
+          <small>Услуга из каталога</small>
+          <select aria-label="Услуга из каталога" onChange={(event) => setCatalogSlug(event.currentTarget.value)} value={catalogSlug}>
+            {business.services.map((service) => <option key={service.slug} value={service.slug}>{service.name} — {money(service.priceMinor, business.currency, business.locale)}</option>)}
+          </select>
+        </label>
+      ) : (
+        <>
+          <label className="field">
+            <small>Название</small>
+            <input aria-label="Название своей услуги" maxLength={100} onChange={(event) => setCustomName(event.currentTarget.value)} placeholder="Например, химчистка сидений" value={customName} />
+          </label>
+          <label className="field">
+            <small>Цена ({business.currency})</small>
+            <input aria-label="Цена своей услуги" inputMode="decimal" min="0.01" onChange={(event) => setCustomPrice(event.currentTarget.value)} placeholder="Например, 3000" step="0.01" type="number" value={customPrice} />
+          </label>
+        </>
+      )}
       <Text type="supporting" color="secondary">
-        Итог станет: {money(totals.totalMinor + (canSubmit ? (previewMinor ?? 0) : 0), business.currency, business.locale)}
+        Итог станет: {money(totals.totalMinor + (canSubmit ? previewMinor : 0), business.currency, business.locale)}
       </Text>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
       <Button label="Добавить" size="sm" type="submit" variant="primary" icon={<Plus aria-hidden="true" />} isLoading={mutation.isPending} isDisabled={mutation.isPending || !canSubmit} />
@@ -217,7 +234,7 @@ function AppointmentRow({appointment, business, order, refresh}: {appointment: A
       </section>
       <section className="appointment-controls">
         {next ? <Button label={next.label} size="sm" variant="primary" onClick={() => runStatus(next.next)} isLoading={mutation.isPending} /> : null}
-        {active ? <Button label="+ Доп. услуга" size="sm" variant="secondary" icon={<Plus aria-hidden="true" />} onClick={() => setShowExtra((open) => !open)} /> : null}
+        {active ? <Button label="Доп. услуга" size="sm" variant="secondary" icon={<Plus aria-hidden="true" />} onClick={() => setShowExtra((open) => !open)} /> : null}
         {active ? <Button label="Итог заказа" size="sm" variant="ghost" onClick={() => setShowSummary(true)} /> : null}
         {appointment.status === 'confirmed' || appointment.status === 'checked_in' ? <Button label="Отменить" size="sm" variant="destructive" onClick={cancel} isLoading={mutation.isPending} /> : null}
         {appointment.status === 'confirmed' ? <Button label="Не приехал" size="sm" variant="secondary" onClick={() => runStatus('no_show')} isLoading={mutation.isPending} /> : null}
@@ -227,7 +244,7 @@ function AppointmentRow({appointment, business, order, refresh}: {appointment: A
         <details className="appointment-tools">
           <summary>Перенос, оплата и заметки</summary>
           <form className="inline-form" onSubmit={move}>
-            <label className="field"><small>Новое время</small><input aria-label="Новое время записи" onChange={(event) => setMoveTo(event.currentTarget.value)} type="datetime-local" value={moveTo} /></label>
+            <label className="field"><small>Новое время · шаг {business.bookingStepMinutes} мин</small><input aria-label="Новое время записи" min={localInputValue(new Date().toISOString(), business.timezone)} onChange={(event) => setMoveTo(event.currentTarget.value)} step={business.bookingStepMinutes * 60} type="datetime-local" value={moveTo} /></label>
             <Button label="Перенести" type="submit" size="sm" variant="secondary" isLoading={mutation.isPending} />
           </form>
           <OrderPaymentsList order={order} business={business} />
@@ -328,7 +345,18 @@ export function OwnerDashboardPage() {
       setCustomerName(''); setCustomerPhone(''); setVehicle('');
       await refresh();
     },
-    onError: (caught) => setManualError(caught instanceof Error ? caught.message : 'Не удалось добавить запись.'),
+    onError: (caught) => {
+      const message = caught instanceof Error ? caught.message : 'Не удалось добавить запись.';
+      setManualError(
+        /invalid booking step/i.test(message)
+          ? `Время должно попадать в шаг записи: ${business.bookingStepMinutes} мин (например, 10:00 или 10:30).`
+          : /booking time in past/i.test(message)
+            ? 'Это время уже прошло. Выберите будущее.'
+            : /outside opening hours/i.test(message)
+              ? 'Студия закрыта в это время. Проверьте график работы.'
+              : message,
+      );
+    },
   });
   const logout = async () => { await signOutOwner(); await queryClient.clear(); };
   const queryErrorText = scheduleQuery.error instanceof Error ? scheduleQuery.error.message : 'Не удалось загрузить расписание.';
@@ -373,7 +401,7 @@ export function OwnerDashboardPage() {
           <header className="section-heading"><section><p className="eyebrow">Новая запись</p><Heading level={2}>Добавить вручную</Heading></section></header>
           <form className="field-grid two-column" onSubmit={addManual}>
             <label className="field"><small>Услуга</small><select onChange={(event) => setServiceSlug(event.currentTarget.value)} value={serviceSlug}>{business.services.map((service) => <option key={service.slug} value={service.slug}>{service.name}</option>)}</select></label>
-            <label className="field"><small>Дата и время ({business.timezone})</small><input onChange={(event) => setManualDateTime(event.currentTarget.value)} required type="datetime-local" value={manualDateTime} /></label>
+            <label className="field"><small>Дата и время ({business.timezone}) · шаг {business.bookingStepMinutes} мин</small><input min={localInputValue(new Date().toISOString(), business.timezone)} onChange={(event) => setManualDateTime(event.currentTarget.value)} required step={business.bookingStepMinutes * 60} type="datetime-local" value={manualDateTime} /></label>
             <label className="field"><small>Имя</small><input onChange={(event) => setCustomerName(event.currentTarget.value)} required value={customerName} /></label>
             <label className="field"><small>Телефон</small><input inputMode="tel" onChange={(event) => setCustomerPhone(event.currentTarget.value)} required value={customerPhone} /></label>
             <label className="field"><small>Автомобиль</small><input onChange={(event) => setVehicle(event.currentTarget.value)} required value={vehicle} /></label>
