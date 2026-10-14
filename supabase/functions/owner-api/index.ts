@@ -252,6 +252,24 @@ Deno.serve(async (request)=>{
             extraService: saved
           });
         }
+      case 'remove-extra-service': {
+        const args = z.object({appointmentId: z.uuid(), extraServiceId: z.uuid()}).strip().parse(input);
+        const {data: appointment, error: appointmentError} = await admin.from('appointments')
+          .select('id').eq('tenant_id', tenant.id).eq('id', args.appointmentId).maybeSingle();
+        if (appointmentError) throw appointmentError;
+        if (!appointment) return json(request, {error: 'Запись не найдена.'}, 404);
+        // Scoped by BOTH tenant and appointment: an id from another tenant or
+        // another appointment deletes nothing (no cross-tenant reach).
+        const {data: removed, error: removeError} = await admin.from('appointment_services')
+          .delete()
+          .eq('tenant_id', tenant.id)
+          .eq('appointment_id', args.appointmentId)
+          .eq('id', args.extraServiceId)
+          .select('id');
+        if (removeError) throw removeError;
+        if (!removed || removed.length === 0) return json(request, {error: 'Услуга не найдена в этой записи.'}, 404);
+        return json(request, {removed: removed[0].id});
+      }
       case 'add-note':
         {
           const args = z.object({

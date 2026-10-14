@@ -131,6 +131,39 @@ function ExtraServiceForm({appointment, order, business, mutation}: {
   );
 }
 
+/** Extra service line items with per-line removal (owner corrections). */
+function ExtraServicesList({appointment, order, business, mutation}: {
+  appointment: Appointment;
+  order: OwnerOrder;
+  business: ReturnType<typeof useTenant>;
+  mutation: ReturnType<typeof useMutation<unknown, Error, {action: string; payload: Record<string, unknown>}>>;
+}) {
+  const extras = normalizeOwnerOrder(order).extras;
+  if (extras.length === 0) return <Text type="supporting" color="secondary">Дополнительных услуг нет.</Text>;
+  return (
+    <section className="order-payments">
+      {extras.map((line) => (
+        <section className="order-line" key={line.id}>
+          <section className="order-line-copy">
+            <Text>{line.name}</Text>
+            <small>{line.kind === 'custom' ? 'Своя услуга' : 'Из каталога'}</small>
+          </section>
+          <section className="order-line-actions">
+            <strong className="order-line-price">{money(line.priceMinor, business.currency, business.locale)}</strong>
+            <Button
+              label="Убрать"
+              size="sm"
+              variant="ghost"
+              isLoading={mutation.isPending}
+              onClick={() => mutation.mutate({action: 'remove-extra-service', payload: {appointmentId: appointment.id, extraServiceId: line.id}})}
+            />
+          </section>
+        </section>
+      ))}
+    </section>
+  );
+}
+
 /** Owner note capture: plain history rows, never overwritten. */
 function NoteForm({appointment, mutation}: {appointment: Appointment; mutation: ReturnType<typeof useMutation<unknown, Error, {action: string; payload: Record<string, unknown>}>>}) {
   const [body, setBody] = useState('');
