@@ -97,6 +97,88 @@ export interface AdminAppointmentRow extends Record<string, unknown> {
   serviceName: string;
   status: string;
   priceMinor: number;
+  /** Sum of additional service line items (0 when none). */
+  extrasMinor: number;
+  /** Number of owner notes recorded on the order. */
+  notesCount: number;
+  /** Recorded charges for this appointment. */
+  paidMinor: number;
+  /** Recorded refunds for this appointment. */
+  refundedMinor: number;
+}
+
+export interface AdminOrderLineRow extends Record<string, unknown> {
+  id: string;
+  serviceId: string | null;
+  name: string;
+  priceMinor: number;
+  kind: string;
+  createdAt: string;
+}
+
+export interface AdminOrderNoteRow extends Record<string, unknown> {
+  id: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface AdminOrderDetail extends Record<string, unknown> {
+  appointmentId: string;
+  tenantId: string;
+  tenantSlug: string;
+  customerName: string;
+  customerPhone: string;
+  vehicle: string;
+  serviceName: string;
+  resourceLabel: string | null;
+  startsAt: string;
+  endsAt: string;
+  status: string;
+  priceMinor: number;
+  customerNote: string;
+  extras: AdminOrderLineRow[];
+  notes: AdminOrderNoteRow[];
+  payments: AdminPaymentRow[];
+}
+
+/** Full order/financial detail for one appointment (admin dialog). */
+export async function getOrderDetail(appointmentId: string): Promise<AdminOrderDetail> {
+  const raw = await invokeAdmin<Record<string, unknown>>('get-order', {appointmentId});
+  const appointment = (raw.appointment ?? {}) as Record<string, unknown>;
+  const tenant = (raw.tenant ?? {}) as Record<string, unknown>;
+  const payments = (Array.isArray(raw.payments) ? raw.payments : []).map(toPaymentRow);
+  return {
+    ...raw,
+    appointmentId: str(raw.appointmentId ?? appointment.id),
+    tenantId: str(appointment.tenant_id),
+    tenantSlug: str(tenant.slug),
+    customerName: str(appointment.customer_name, '—'),
+    customerPhone: str(appointment.customer_phone),
+    vehicle: str(appointment.vehicle),
+    serviceName: str(raw.serviceName, 'Услуга'),
+    resourceLabel: raw.resourceLabel ? str(raw.resourceLabel) : null,
+    startsAt: str(appointment.starts_at),
+    endsAt: str(appointment.ends_at),
+    status: str(appointment.status, 'confirmed'),
+    priceMinor: num(appointment.price_minor),
+    customerNote: str(appointment.customer_note),
+    extras: (Array.isArray(raw.extras) ? raw.extras : []).map((row) => ({
+      ...row,
+      id: str((row as Record<string, unknown>).id),
+      serviceId: (row as Record<string, unknown>).service_id ? str((row as Record<string, unknown>).service_id) : null,
+      name: str((row as Record<string, unknown>).name, '—'),
+      priceMinor: num((row as Record<string, unknown>).price_minor),
+      kind: str((row as Record<string, unknown>).kind, 'extra'),
+      createdAt: str((row as Record<string, unknown>).created_at),
+    })),
+    notes: (Array.isArray(raw.notes) ? raw.notes : []).map((row) => ({
+      ...row,
+      id: str((row as Record<string, unknown>).id),
+      body: str((row as Record<string, unknown>).body),
+      createdAt: str((row as Record<string, unknown>).created_at),
+    })),
+    payments,
+  };
 }
 
 export interface AdminPaymentRow extends Record<string, unknown> {
@@ -106,6 +188,10 @@ export interface AdminPaymentRow extends Record<string, unknown> {
   kind: string;
   amountMinor: number;
   method: string;
+  note: string;
+  recordedBy: string | null;
+  /** Linked appointment summary (server-enriched); null when unlinked. */
+  appointment: {customerName: string; startsAt: string; serviceName: string; tenantId: string} | null;
 }
 
 export interface AdminAuditEntry extends Record<string, unknown> {
@@ -459,6 +545,29 @@ export async function listResources(tenantId: string): Promise<AdminResourceRow[
   }));
 }
 
+function toPaymentRow(row: Record<string, unknown>): AdminPaymentRow {
+  const appointment = (row.appointment ?? null) as {customerName?: unknown; startsAt?: unknown; serviceName?: unknown; tenantId?: unknown} | null;
+  return {
+    ...row,
+    id: str(row.id),
+    receivedAt: str(row.received_at),
+    appointmentId: str(row.appointment_id),
+    kind: str(row.kind, 'charge'),
+    amountMinor: num(row.amount_minor),
+    method: str(row.method),
+    note: str(row.note),
+    recordedBy: str(row.recorded_by) || null,
+    appointment: appointment
+      ? {
+          customerName: str(appointment.customerName, '—'),
+          startsAt: str(appointment.startsAt),
+          serviceName: str(appointment.serviceName, 'Услуга'),
+          tenantId: str(appointment.tenantId),
+        }
+      : null,
+  };
+}
+
 export async function listTenantAppointments(tenantId: string, page: number, pageSize: number) {
   const raw = await invokeAdmin<{appointments?: Record<string, unknown>[]; total?: number}>('list-appointments', {
     tenantId,
@@ -476,6 +585,10 @@ export async function listTenantAppointments(tenantId: string, page: number, pag
     serviceName: '',
     status: str(row.status, 'confirmed'),
     priceMinor: num(row.price_minor),
+    extrasMinor: num(row.extras_minor),
+    notesCount: num(row.notes_count),
+    paidMinor: num(row.paid_minor),
+    refundedMinor: num(row.refunded_minor),
   }));
   return {appointments, total: num(raw.total)};
 }
@@ -486,15 +599,7 @@ export async function listTenantPayments(tenantId: string, page: number, pageSiz
     limit: pageSize,
     offset: (page - 1) * pageSize,
   });
-  const payments: AdminPaymentRow[] = (Array.isArray(raw.payments) ? raw.payments : []).map((row) => ({
-    ...row,
-    id: str(row.id),
-    receivedAt: str(row.received_at),
-    appointmentId: str(row.appointment_id),
-    kind: str(row.kind, 'charge'),
-    amountMinor: num(row.amount_minor),
-    method: str(row.method),
-  }));
+  const payments: AdminPaymentRow[] = (Array.isArray(raw.payments) ? raw.payments : []).map(toPaymentRow);
   const totals = ((raw.totals ?? {}) as Record<string, unknown>);
   return {
     payments,

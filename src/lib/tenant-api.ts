@@ -1,5 +1,6 @@
 import {formatInTimeZone} from 'date-fns-tz';
 import {businessSchema, type Appointment, type AvailabilitySlot, type BusinessConfig, type OwnerMetrics, type Service} from '@/domain/tenant';
+import {byCreatedAt, type OrderLine, type OrderLineKind, type OrderNote, type OrderPayment} from '@/lib/order';
 import {hasSupabaseConfig, supabase} from '@/lib/supabase';
 
 function requireSupabase() {
@@ -196,10 +197,28 @@ export async function signOutOwner() {
   await supabase.auth.signOut();
 }
 
+/** Full financial context of one appointment for the owner dashboard. */
+export interface OwnerOrder {
+  extras: OrderLine[];
+  notes: OrderNote[];
+  payments: OrderPayment[];
+}
+
+export type OwnerSchedule = Awaited<ReturnType<typeof loadOwnerSchedule>>;
+
+/** Keep line items and notes in history order regardless of fetch order. */
+export function normalizeOwnerOrder(order: OwnerOrder): OwnerOrder {
+  return {
+    extras: [...order.extras].sort(byCreatedAt),
+    notes: [...order.notes].sort(byCreatedAt),
+    payments: [...order.payments].sort((a, b) => a.receivedAt.localeCompare(b.receivedAt)),
+  };
+}
+
 export async function loadOwnerSchedule(business: BusinessConfig, from: Date, to: Date) {
   const client = requireSupabase();
   const [{data: rows, error}, {data: metricRows, error: metricError}] = await Promise.all([
-    client.from('appointments').select('id,tenant_id,service_id,resource_id,customer_name,customer_phone,vehicle,starts_at,ends_at,status,price_minor').eq('tenant_id', business.id!).gte('starts_at', from.toISOString()).lt('starts_at', to.toISOString()).order('starts_at'),
+    client.from('appointments').select('id,tenant_id,service_id,resource_id,customer_name,customer_phone,vehicle,starts_at,ends_at,status,price_minor,customer_note').eq('tenant_id', business.id!).gte('starts_at', from.toISOString()).lt('starts_at', to.toISOString()).order('starts_at'),
     client.rpc('owner_metrics', {p_tenant_id: business.id, p_from: from.toISOString(), p_to: to.toISOString()}),
   ]);
   if (error || metricError) throw new Error(error?.message ?? metricError?.message ?? 'Не удалось загрузить расписание.');
@@ -218,16 +237,58 @@ export async function loadOwnerSchedule(business: BusinessConfig, from: Date, to
       vehicle: row.vehicle,
       status: row.status,
       priceMinor: row.price_minor,
+      customerNote: row.customer_note ?? '',
       resourceLabel: resource?.name,
     } satisfies Appointment;
   });
   const metrics = (Array.isArray(metricRows) ? metricRows[0] : metricRows) as {arrivals: number; completed: number; collected_minor: number} | null;
-  return {appointments, metrics: {arrivals: metrics?.arrivals ?? 0, completed: metrics?.completed ?? 0, collectedMinor: metrics?.collected_minor ?? 0} satisfies OwnerMetrics};
+  // Full order context for the visible appointments: extra service lines,
+  // owner notes and the payment/refund history (RLS scopes all three to
+  // this tenant's members).
+  const appointmentIds = appointments.map((appointment) => appointment.id);
+  const orders: Record<string, OwnerOrder> = {};
+  for (const appointment of appointments) orders[appointment.id] = {extras: [], notes: [], payments: []};
+  if (appointmentIds.length > 0) {
+    const [extrasResult, notesResult, paymentsResult] = await Promise.all([
+      client.from('appointment_services').select('id,appointment_id,service_id,name,price_minor,kind,created_at').eq('tenant_id', business.id!).in('appointment_id', appointmentIds).order('created_at'),
+      client.from('appointment_notes').select('id,appointment_id,body,created_at').eq('tenant_id', business.id!).in('appointment_id', appointmentIds).order('created_at'),
+      client.from('payments').select('id,appointment_id,kind,amount_minor,method,note,received_at').eq('tenant_id', business.id!).in('appointment_id', appointmentIds).order('received_at'),
+    ]);
+    if (extrasResult.error || notesResult.error || paymentsResult.error) {
+      throw new Error(extrasResult.error?.message ?? notesResult.error?.message ?? paymentsResult.error?.message ?? 'Не удалось загрузить детали заказов.');
+    }
+    for (const row of extrasResult.data ?? []) {
+      const line: OrderLine = {
+        id: row.id, serviceId: row.service_id, name: row.name, priceMinor: row.price_minor,
+        kind: (row.kind === 'custom' ? 'custom' : 'extra') as OrderLineKind, createdAt: row.created_at,
+      };
+      orders[row.appointment_id]?.extras.push(line);
+    }
+    for (const row of notesResult.data ?? []) {
+      const note: OrderNote = {id: row.id, body: row.body, createdAt: row.created_at};
+      orders[row.appointment_id]?.notes.push(note);
+    }
+    for (const row of paymentsResult.data ?? []) {
+      const payment: OrderPayment = {
+        id: row.id, kind: row.kind === 'refund' ? 'refund' : 'charge', amountMinor: row.amount_minor,
+        method: row.method, note: row.note ?? '', receivedAt: row.received_at,
+      };
+      orders[row.appointment_id]?.payments.push(payment);
+    }
+  }
+  return {
+    appointments,
+    orders,
+    metrics: {arrivals: metrics?.arrivals ?? 0, completed: metrics?.completed ?? 0, collectedMinor: metrics?.collected_minor ?? 0} satisfies OwnerMetrics,
+  };
 }
 
 export async function ownerAction(business: BusinessConfig, action: string, payload: Record<string, unknown>) {
   const {data, error} = await requireSupabase().functions.invoke('owner-api', {body: {slug: business.slug, action, ...payload}});
-  if (error) throw new Error(error.message || 'Не удалось сохранить изменение.');
+  if (error) await functionError('', 'Не удалось сохранить изменение.', error);
+  if (data && typeof data === 'object' && 'error' in data && typeof (data as {error: unknown}).error === 'string') {
+    throw new Error((data as {error: string}).error);
+  }
   return data;
 }
 

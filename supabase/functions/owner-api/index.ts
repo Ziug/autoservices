@@ -68,6 +68,75 @@ Deno.serve(async (request) => {
         if (error) return json(request, {error: errorMessage(error)}, errorStatus(error));
         return json(request, {appointment: data});
       }
+      case 'add-extra-service': {
+        forbidRole(role, 'manager');
+        const args = z.object({
+          appointmentId: z.uuid(),
+          requestId: z.uuid().optional(),
+          serviceSlug: z.string().regex(/^[a-z0-9-]+$/).optional(),
+          name: z.string().trim().min(2).max(100).optional(),
+          priceMinor: z.number().int().min(1).max(1000000000000).optional(),
+        }).strict().refine(
+          (value) => Boolean(value.serviceSlug) !== Boolean(value.name && value.priceMinor !== undefined),
+          'Provide either serviceSlug (catalog service) or name + priceMinor (custom service).',
+        ).parse(input);
+        const {data: appointment, error: appointmentError} = await admin.from('appointments')
+          .select('id').eq('tenant_id', tenant.id).eq('id', args.appointmentId).maybeSingle();
+        if (appointmentError) throw appointmentError;
+        if (!appointment) return json(request, {error: 'Запись не найдена.'}, 404);
+        let serviceId: string | null = null;
+        let name: string;
+        let priceMinor: number;
+        let kind: 'extra' | 'custom';
+        if (args.serviceSlug) {
+          const {data: service, error: serviceError} = await admin.from('services')
+            .select('id,name,price_minor').eq('tenant_id', tenant.id).eq('slug', args.serviceSlug).eq('active', true).maybeSingle();
+          if (serviceError) throw serviceError;
+          if (!service) return json(request, {error: 'Услуга не найдена или скрыта.'}, 404);
+          // Snapshot name+price: a later catalog price change must not rewrite this order line.
+          serviceId = (service as {id: string}).id;
+          name = (service as {name: string}).name;
+          priceMinor = (service as {price_minor: number}).price_minor;
+          kind = 'extra';
+        } else {
+          serviceId = null;
+          name = args.name!.trim();
+          priceMinor = args.priceMinor!;
+          kind = 'custom';
+        }
+        const requestId = args.requestId ?? crypto.randomUUID();
+        // Duplicate-safe: the (tenant_id, request_id) unique makes a replay a no-op.
+        const {error: insertError} = await admin.from('appointment_services').upsert({
+          request_id: requestId, tenant_id: tenant.id, appointment_id: args.appointmentId, service_id: serviceId,
+          name, price_minor: priceMinor, kind, created_by: user.id,
+        }, {onConflict: 'tenant_id,request_id'});
+        if (insertError) throw insertError;
+        const {data: saved, error: savedError} = await admin.from('appointment_services')
+          .select('id,service_id,name,price_minor,kind,created_at').eq('tenant_id', tenant.id).eq('request_id', requestId).single();
+        if (savedError) throw savedError;
+        return json(request, {extraService: saved});
+      }
+      case 'add-note': {
+        const args = z.object({
+          appointmentId: z.uuid(),
+          requestId: z.uuid().optional(),
+          body: z.string().trim().min(1).max(1000),
+        }).strict().parse(input);
+        const {data: appointment, error: appointmentError} = await admin.from('appointments')
+          .select('id').eq('tenant_id', tenant.id).eq('id', args.appointmentId).maybeSingle();
+        if (appointmentError) throw appointmentError;
+        if (!appointment) return json(request, {error: 'Запись не найдена.'}, 404);
+        const requestId = args.requestId ?? crypto.randomUUID();
+        const {error: insertError} = await admin.from('appointment_notes').upsert({
+          request_id: requestId, tenant_id: tenant.id, appointment_id: args.appointmentId,
+          body: args.body.trim(), created_by: user.id,
+        }, {onConflict: 'tenant_id,request_id'});
+        if (insertError) throw insertError;
+        const {data: saved, error: savedError} = await admin.from('appointment_notes')
+          .select('id,body,created_at').eq('tenant_id', tenant.id).eq('request_id', requestId).single();
+        if (savedError) throw savedError;
+        return json(request, {note: saved});
+      }
       case 'add-payment': {
         forbidRole(role, 'manager');
         const args = paymentSchema.parse(input);

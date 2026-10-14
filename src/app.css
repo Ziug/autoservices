@@ -180,6 +180,22 @@ img { display: block; max-width: 100%; }
 .hours-editor-row .checkbox-field { padding-block-end: var(--spacing-2); }
 .appointment-tools { display: grid; gap: var(--spacing-3); }
 .appointment-tools summary { width: fit-content; color: var(--color-text-accent); cursor: pointer; }
+
+/* Order details: extra service lines, notes, payment history, totals.
+   Token-only values; owner and admin share these classes. */
+.extra-service-form { align-items: end; }
+.order-summary { display: grid; gap: var(--spacing-4); min-width: 0; }
+.order-section { display: grid; gap: var(--spacing-2); min-width: 0; }
+.order-line { display: flex; align-items: baseline; justify-content: space-between; gap: var(--spacing-3); min-width: 0; padding-block: var(--spacing-1); border-bottom: var(--border-width) solid var(--color-border); }
+.order-line:last-child { border-bottom: 0; }
+.order-line-copy { display: grid; gap: var(--spacing-0-5); min-width: 0; }
+.order-line-copy small { min-width: 0; color: var(--color-text-secondary); font-size: 0.78rem; line-height: 1.35; overflow-wrap: anywhere; }
+.order-line-price { flex: 0 0 auto; font-size: 0.92rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.order-line[data-kind='refund'] .order-line-price { color: var(--color-error); }
+.order-payments { display: grid; gap: var(--spacing-1); }
+.order-totals { display: grid; gap: var(--spacing-1); padding: var(--spacing-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-container); background: color-mix(in srgb, var(--color-background-surface) 76%, transparent); }
+.order-total-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--spacing-3); min-width: 0; }
+.order-total-row strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .week-schedule { display: grid; gap: var(--spacing-3); }
 .booking-service-choice { display: grid; gap: var(--spacing-3); width: 100%; min-width: 0; padding: var(--spacing-4); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-container); background: color-mix(in srgb, var(--color-background-surface) 68%, transparent); color: var(--color-text-primary); text-align: start; cursor: pointer; transition: border-color var(--duration-fast), background var(--duration-fast), transform var(--duration-fast); backdrop-filter: blur(10px) saturate(125%); -webkit-backdrop-filter: blur(10px) saturate(125%); }
 .booking-service-choice[aria-pressed='true'] { border-color: color-mix(in srgb, var(--color-accent) 72%, var(--color-border)); background: color-mix(in srgb, var(--color-accent) 12%, var(--color-background-surface)); }

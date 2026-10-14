@@ -16,13 +16,14 @@ import {TabList, Tab} from '@astryxdesign/core/TabList';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {Layout, LayoutContent} from '@astryxdesign/core/Layout';
 import {AdminAreaHeading} from '@/pages/admin/AdminLayout';
+import {OrderSummary, type OrderSummaryData} from '@/components/order-summary';
 import {adminUrl} from '@/lib/admin-config';
 import {
   archiveTenant,
   createOwner,
   deleteOwner,
-  getTenantDetail,
-  listAudit,
+  getOrderDetail,
+  getTenantDetail,  listAudit,
   listOwners,
   listResources,
   listServices,
@@ -39,6 +40,7 @@ import {
   type AdminPaymentRow,
   type AdminResourceRow,
   type AdminServiceRow,
+  type AdminOrderDetail,
   type AdminTenantDetail,
 } from '@/lib/admin-api';
 import {money} from '@/lib/format';
@@ -114,7 +116,73 @@ function auditActionLabel(action: string): string {
   return labels[action] ?? action;
 }
 
-const APPOINTMENT_COLUMNS: Array<TableColumn<AdminAppointmentRow>> = [
+/**
+ * Full order detail dialog — shared by the appointments and payments tabs.
+ * Every value comes from the server action; nothing is derived client-side
+ * except the totals math (computeOrderTotals).
+ */
+function OrderDetailDialog({appointmentId, onClose}: {appointmentId: string; onClose: () => void}) {
+  const orderQuery = useQuery({
+    queryKey: ['admin-order', appointmentId],
+    queryFn: () => getOrderDetail(appointmentId),
+    enabled: Boolean(appointmentId),
+    staleTime: 10_000,
+  });
+  const detail = orderQuery.data as AdminOrderDetail | undefined;
+  const order: OrderSummaryData | null = detail
+    ? {
+        appointmentId: detail.appointmentId,
+        serviceName: detail.serviceName,
+        startsAt: detail.startsAt,
+        customerName: detail.customerName,
+        customerNote: detail.customerNote,
+        originalMinor: detail.priceMinor,
+        extras: detail.extras.map((line) => ({
+          id: line.id, serviceId: line.serviceId, name: line.name,
+          priceMinor: line.priceMinor, kind: (line.kind === 'custom' ? 'custom' : 'extra') as 'extra' | 'custom', createdAt: line.createdAt,
+        })),
+        notes: detail.notes.map((note) => ({id: note.id, body: note.body, createdAt: note.createdAt})),
+        payments: detail.payments.map((row) => ({
+          id: row.id,
+          kind: (row.kind === 'refund' ? 'refund' : 'charge') as 'refund' | 'charge',
+          amountMinor: row.amountMinor,
+          method: row.method,
+          note: row.note,
+          receivedAt: row.receivedAt,
+        })),
+      }
+    : null;
+  return (
+    <Dialog isOpen={Boolean(appointmentId)} onOpenChange={(open) => { if (!open) onClose(); }} purpose="form" width={560}>
+      <Layout header={<DialogHeader title="Заказ и оплаты" onOpenChange={onClose} />} content={
+        <LayoutContent>
+          {orderQuery.isLoading ? <Text type="supporting" color="secondary">Загружаем заказ…</Text> : null}
+          {orderQuery.isError ? (
+            <VStack gap={2}>
+              <Text color="secondary">{orderQuery.error instanceof Error ? orderQuery.error.message : 'Не удалось загрузить заказ.'}</Text>
+              <Button label="Повторить" variant="secondary" onClick={() => void orderQuery.refetch()} />
+            </VStack>
+          ) : null}
+          {order && detail ? (
+            <VStack gap={3}>
+              <VStack gap={1}>
+                <Heading level={3}>{detail.customerName} · {detail.vehicle}</Heading>
+                <Text type="supporting" color="secondary">
+                  {detail.tenantSlug ? `${detail.tenantSlug} · ` : ''}{formatDateTime(detail.startsAt)} · {appointmentStatusLabel(detail.status)}
+                  {detail.resourceLabel ? ` · ${detail.resourceLabel}` : ''} · {detail.customerPhone}
+                </Text>
+              </VStack>
+              <OrderSummary order={order} currency="RUB" locale="ru-RU" timezone="Europe/Moscow" />
+            </VStack>
+          ) : null}
+        </LayoutContent>
+      } />
+    </Dialog>
+  );
+}
+
+function appointmentColumns(onOpen: (id: string) => void): Array<TableColumn<AdminAppointmentRow>> {
+  return [
   {key: 'startsAt', header: 'Начало', width: proportional(1, {minWidth: 110}), renderCell: (row) => <Text type="supporting">{formatDateTime(row.startsAt)}</Text>},
   {key: 'customerName', header: 'Клиент', width: proportional(1, {minWidth: 120})},
   {key: 'serviceName', header: 'Услуга', width: proportional(1, {minWidth: 120})},
@@ -124,8 +192,25 @@ const APPOINTMENT_COLUMNS: Array<TableColumn<AdminAppointmentRow>> = [
     width: proportional(1, {minWidth: 100}),
     renderCell: (row) => <Badge variant={appointmentStatusVariant(row.status)} label={appointmentStatusLabel(row.status)} />,
   },
-  {key: 'priceMinor', header: 'Сумма', width: proportional(1, {minWidth: 90}), renderCell: (row) => <Text type="supporting">{(row.priceMinor / 100).toLocaleString('ru-RU')}</Text>},
-];
+  // Original service price.
+  {key: 'priceMinor', header: 'Услуга', width: proportional(1, {minWidth: 90}), renderCell: (row) => <Text type="supporting">{money(row.priceMinor, 'RUB')}</Text>},
+  // Final order total — equals the service price unless extras were added.
+  {
+    key: 'extrasMinor',
+    header: 'Итог',
+    width: proportional(1, {minWidth: 90}),
+    renderCell: (row) => <Text type="supporting">{money(row.priceMinor + (row.extrasMinor ?? 0), 'RUB')}{row.extrasMinor ? ' *' : ''}</Text>,
+  },
+  // Owner comments recorded on the order (count; details in the order dialog).
+  {key: 'notesCount', header: 'Заметки', width: proportional(1, {minWidth: 80}), renderCell: (row) => <Text type="supporting">{row.notesCount ? row.notesCount : '—'}</Text>},
+  {
+    key: 'open',
+    header: 'Заказ',
+    width: proportional(1, {minWidth: 90}),
+    renderCell: (row) => <Button label="Открыть" size="sm" variant="ghost" onClick={() => onOpen(row.id)} />,
+  },
+  ];
+}
 
 const SERVICE_COLUMNS: Array<TableColumn<AdminServiceRow>> = [
   {key: 'name', header: 'Название', width: proportional(2, {minWidth: 140})},
@@ -140,12 +225,38 @@ const RESOURCE_COLUMNS: Array<TableColumn<AdminResourceRow>> = [
   {key: 'active', header: 'Статус', width: proportional(1, {minWidth: 90}), renderCell: (row) => <Text type="supporting">{row.active ? 'Активен' : 'Отключён'}</Text>},
 ];
 
-const PAYMENT_COLUMNS: Array<TableColumn<AdminPaymentRow>> = [
+function paymentColumns(onOpen: (id: string) => void): Array<TableColumn<AdminPaymentRow>> {
+  return [
+  // Linked order: the admin never has to search for the appointment by hand.
+  {
+    key: 'appointment',
+    header: 'Заказ',
+    width: proportional(2, {minWidth: 150}),
+    renderCell: (row) => row.appointment
+      ? (
+        <Text type="supporting">
+          {formatDateTime(row.appointment.startsAt)} · {row.appointment.customerName} · {row.appointment.serviceName}
+        </Text>
+      )
+      : <Text type="supporting">—</Text>,
+  },
   {key: 'receivedAt', header: 'Получен', width: proportional(1, {minWidth: 110}), renderCell: (row) => <Text type="supporting">{formatDateTime(row.receivedAt)}</Text>},
-  {key: 'kind', header: 'Вид', width: proportional(1, {minWidth: 90}), renderCell: (row) => <Text type="supporting">{row.kind === 'refund' ? 'Возврат' : 'Оплата'}</Text>},
+  {
+    key: 'kind',
+    header: 'Вид',
+    width: proportional(1, {minWidth: 90}),
+    renderCell: (row) => <Badge variant={row.kind === 'refund' ? 'error' : 'success'} label={row.kind === 'refund' ? 'Возврат' : 'Оплата'} />,
+  },
   {key: 'amountMinor', header: 'Сумма', width: proportional(1, {minWidth: 90}), renderCell: (row) => <Text type="supporting">{money(row.amountMinor, 'RUB')}</Text>},
   {key: 'method', header: 'Способ', width: proportional(1, {minWidth: 80})},
+  {
+    key: 'open',
+    header: 'Заказ',
+    width: proportional(1, {minWidth: 90}),
+    renderCell: (row) => <Button label="Открыть" size="sm" variant="ghost" onClick={() => onOpen(row.appointmentId)} />,
+  },
 ];
+}
 
 const AUDIT_COLUMNS: Array<TableColumn<AdminAuditEntry>> = [
   {key: 'createdAt', header: 'Время', width: proportional(1, {minWidth: 110}), renderCell: (row) => <Text type="supporting">{formatDateTime(row.createdAt)}</Text>},
@@ -197,6 +308,7 @@ export function TenantDetailPage() {
   const [targetStatus, setTargetStatus] = useState<'preview' | 'live'>('preview');
   const [confirmKind, setConfirmKind] = useState<ConfirmKind | null>(null);
   const [archiveReason, setArchiveReason] = useState('');
+  const [orderId, setOrderId] = useState('');
   const [requestId, setRequestId] = useState('');
   const [notice, setNotice] = useState<{kind: 'success' | 'error'; text: string} | null>(null);
   const [ownerLogin, setOwnerLogin] = useState('');
@@ -462,7 +574,7 @@ export function TenantDetailPage() {
             <VStack gap={2}>
               <Table<AdminAppointmentRow>
                 data={appointments}
-                columns={APPOINTMENT_COLUMNS}
+                columns={appointmentColumns(setOrderId)}
                 idKey="id"
                 density="compact"
                 hasHover
@@ -749,7 +861,7 @@ export function TenantDetailPage() {
             <VStack gap={2}>
               <Table<AdminPaymentRow>
                 data={paymentsQuery.data.payments}
-                columns={PAYMENT_COLUMNS}
+                columns={paymentColumns(setOrderId)}
                 idKey="id"
                 density="compact"
                 hasHover
@@ -815,6 +927,8 @@ export function TenantDetailPage() {
       <Link className="admin-link" to={adminUrl('tenants')}>
         К списку студий
       </Link>
+
+      <OrderDetailDialog appointmentId={orderId} onClose={() => setOrderId('')} />
 
       <Dialog isOpen={suspendOpen} onOpenChange={setSuspendOpen} purpose="form" width={480}>
         <Layout

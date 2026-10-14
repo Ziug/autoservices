@@ -183,6 +183,68 @@ select extensions.is(public.reserve_llm_budget(tenant_a, booking_day, 1, 100, 10
 select extensions.is(public.reserve_llm_budget(tenant_a, booking_day, 1, 100, 100, 1000, 1000), false, 'the model budget rejects a request that exceeds a daily limit') from test_fixtures;
 select extensions.is((select reserved_calls from public.llm_usage_daily where tenant_id = tenant_a and local_day = booking_day), 1, 'rejected model calls do not increase the reserved call count') from test_fixtures;
 
+-- Studio-wide single capacity (opt-in per tenant): on a flagged tenant a-- second booking overlapping the first must fail even with a free post.
+update public.tenants set booking_single_capacity = true where id = (select tenant_b from test_fixtures);
+insert into public.resources (tenant_id, slug, name, resource_type)
+select tenant_b, 'lift-b2', 'Second lift', 'lift' from test_fixtures;
+select extensions.is((select booking_single_capacity from public.tenants where id = (select tenant_a from test_fixtures)), false, 'single capacity is opt-in, unflagged tenants keep parallel posts');
+update test_fixtures set booking_b = (public.create_public_booking(
+  slug_b, 'wash', starts_at + interval '2 hours', 'Second Tenant Two', '+71111111112', 'Second Car Two', extensions.gen_random_uuid(), 'second-hash'
+)->>'id')::uuid;
+select extensions.ok((select booking_b from test_fixtures) is not null, 'the first booking on a flagged tenant succeeds');
+select extensions.throws_ok($test$
+  select public.create_public_booking(
+    (select slug_b from test_fixtures), 'wash', (select starts_at from test_fixtures) + interval '2 hours',
+    'Second Tenant Three', '+71111111113', 'Second Car Three', extensions.gen_random_uuid(), 'third-hash'
+  )
+$test$, '23P01', 'SLOT_TAKEN', 'a second overlapping booking fails despite the free post');
+select extensions.is((select available_count from public.public_booking_slots(slug_b, 'wash', booking_day) where starts_at = test_fixtures.starts_at + interval '2 hours'), 0, 'slots report zero while the studio-wide window is taken') from test_fixtures;
+update test_fixtures set booking_a2 = (public.create_public_booking(
+  slug_b, 'wash', starts_at + interval '4 hours', 'Second Tenant Four', '+71111111114', 'Second Car Four', extensions.gen_random_uuid(), 'fourth-hash'
+)->>'id')::uuid;
+select extensions.throws_ok($test$
+  select public.move_appointment(
+    (select tenant_b from test_fixtures), (select booking_a2 from test_fixtures), (select starts_at from test_fixtures) + interval '2 hours'
+  )
+$test$, '23P01', 'SLOT_TAKEN', 'a move into the studio-wide taken window fails without touching the booking') from test_fixtures;
+select extensions.is((select starts_at from public.appointments where id = (select booking_a2 from test_fixtures)), starts_at + interval '4 hours', 'the failed move preserves the original time') from test_fixtures;
+
+-- Order details: additional services, owner notes, payments and refunds.
+-- Order total = original price + extras (never stored, never from payments).
+insert into public.appointment_services (tenant_id, appointment_id, service_id, name, price_minor, kind)
+select tenant_a, booking_a1, service_a, 'Доп. полировка', 1500, 'extra' from test_fixtures
+returning id;
+select extensions.is((select sum(price_minor)::bigint from public.appointment_services where appointment_id = (select booking_a1 from test_fixtures)), 1500::bigint, 'an additional service is stored on the appointment') from test_fixtures;
+select extensions.is((select count(*) from public.appointment_services where appointment_id = (select booking_a1 from test_fixtures)), 1::bigint, 'adding an extra service does not create a new appointment') from test_fixtures;
+-- The catalog price of the referenced service is untouched by the order line.
+select extensions.is((select price_minor from public.services where id = (select service_a from test_fixtures)), 99999::bigint, 'adding an extra service leaves the catalog price unchanged') from test_fixtures;
+select extensions.ok(exists (select 1 from public.appointment_services where appointment_id = (select booking_a1 from test_fixtures) and name = 'Доп. полировка' and price_minor = 1500), 'the order line snapshots name and price') from test_fixtures;
+-- A later catalog price change must not rewrite the existing order line.
+update public.services set price_minor = 55555 where id = (select service_a from test_fixtures);
+select extensions.is((select price_minor from public.appointment_services where appointment_id = (select booking_a1 from test_fixtures)), 1500::bigint, 'a catalog price change does not rewrite an existing order line') from test_fixtures;
+update public.services set price_minor = 99999 where id = (select service_a from test_fixtures);
+-- Owner notes are appended history rows, never overwrites.
+insert into public.appointment_notes (tenant_id, appointment_id, body)
+select tenant_a, booking_a1, 'Царапина на двери, показать клиенту' from test_fixtures;
+select extensions.is((select count(*) from public.appointment_notes where appointment_id = (select booking_a1 from test_fixtures)), 1::bigint, 'an owner note is stored') from test_fixtures;
+select extensions.ok((select body from public.appointment_notes where appointment_id = (select booking_a1 from test_fixtures)) = 'Царапина на двери, показать клиенту', 'the note text is kept verbatim') from test_fixtures;
+-- Payments/refunds: history rows only; the order total never moves.
+select extensions.is((select collected_minor::bigint from public.owner_metrics_for_edge(tenant_a, now() - interval '1 day', now() + interval '90 days')), 4000::bigint, 'the payment journal still nets charges against refunds') from test_fixtures;
+select extensions.is(public.add_payment(tenant_a, booking_a1, 'charge', 7000, 'card', 'Частичная оплата', null) is not null, true, 'a partial payment is recorded') from test_fixtures;
+select extensions.is(public.add_payment(tenant_a, booking_a1, 'refund', 500, 'card', 'Скидка', null) is not null, true, 'a refund is recorded separately') from test_fixtures;
+select extensions.is((select count(*) from public.payments where appointment_id = (select booking_a1 from test_fixtures)), 4::bigint, 'historical payment rows are never overwritten') from test_fixtures;
+select extensions.is((select price_minor from public.appointments where id = (select booking_a1 from test_fixtures)), 12345::bigint, 'payments never change the original service price') from test_fixtures;
+-- Total math: original + extras = 13845; payments keep both rows visible.
+select extensions.is(
+  (select a.price_minor + coalesce(sum(s.price_minor), 0)::bigint
+   from public.appointments a
+   left join public.appointment_services s on s.tenant_id = a.tenant_id and s.appointment_id = a.id
+   where a.id = (select booking_a1 from test_fixtures)
+   group by a.price_minor),
+  13845::bigint,
+  'the order total equals the original price plus additional services'
+) from test_fixtures;
+-- Cross-tenant isolation on the new tables (authenticated member of tenant A).
 insert into auth.users (id, aud, role, email, encrypted_password, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
 select owner_id, 'authenticated', 'authenticated', owner_id::text || '@pgtap.invalid', '', '{}'::jsonb, '{}'::jsonb, now(), now()
 from test_fixtures;
@@ -193,13 +255,13 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub', (select owner_id::text from test_fixtures), true);
 select extensions.is((select count(*) from public.appointments where tenant_id = (select tenant_a from test_fixtures)), 3::bigint, 'the owner can read appointments in their own tenant');
 select extensions.is((select count(*) from public.appointments where tenant_id = (select tenant_b from test_fixtures)), 0::bigint, 'the owner cannot read another tenant appointments');
-select extensions.is((select count(*) from public.payments where tenant_id = (select tenant_a from test_fixtures)), 2::bigint, 'the owner can read their tenant payments');
+select extensions.is((select count(*) from public.payments where tenant_id = (select tenant_a from test_fixtures)), 4::bigint, 'the owner can read their tenant payments');
 select extensions.is((select count(*) from public.payments where tenant_id = (select tenant_b from test_fixtures)), 0::bigint, 'the owner cannot read another tenant payments');
 select extensions.is((select count(*) from public.services where tenant_id = (select tenant_a from test_fixtures)), 2::bigint, 'the owner can read services in their own tenant');
 select extensions.is((select count(*) from public.services where tenant_id = (select tenant_b from test_fixtures) and active), 1::bigint, 'published services of another tenant stay visible as public catalog');
 select extensions.is((select count(*) from public.services where tenant_id = (select tenant_b from test_fixtures) and not active), 0::bigint, 'the owner cannot read inactive services of another tenant');
 select extensions.is((select count(*) from public.resources where tenant_id = (select tenant_a from test_fixtures)), 4::bigint, 'the owner can read resources in their own tenant');
-select extensions.is((select count(*) from public.resources where tenant_id = (select tenant_b from test_fixtures) and active), 1::bigint, 'published resources of another tenant stay visible as public catalog');
+select extensions.is((select count(*) from public.resources where tenant_id = (select tenant_b from test_fixtures) and active), 2::bigint, 'published resources of another tenant stay visible as public catalog');
 select extensions.is((select count(*) from public.resources where tenant_id = (select tenant_b from test_fixtures) and not active), 0::bigint, 'the owner cannot read inactive resources of another tenant');
 select extensions.ok((select count(*) from public.resource_occupancies where tenant_id = (select tenant_a from test_fixtures)) >= 1::bigint, 'the owner can read occupancies in their own tenant');
 select extensions.is((select count(*) from public.resource_occupancies where tenant_id = (select tenant_b from test_fixtures)), 0::bigint, 'the owner cannot read another tenant occupancies');
@@ -209,6 +271,11 @@ select extensions.is((select arrivals from public.owner_metrics((select tenant_a
 select extensions.throws_ok($test$
   select * from public.owner_metrics((select tenant_b from test_fixtures), now() - interval '1 day', now() + interval '90 days')
 $test$, '42501', 'TENANT_ACCESS_DENIED', 'an owner cannot request metrics for another tenant');
+select extensions.is((select count(*) from public.appointment_services where tenant_id = (select tenant_b from test_fixtures)), 0::bigint, 'the owner cannot read another tenant order lines') from test_fixtures;
+select extensions.is((select count(*) from public.appointment_notes where tenant_id = (select tenant_a from test_fixtures)), 1::bigint, 'the owner can read their own tenant notes') from test_fixtures;
+select extensions.is((select count(*) from public.appointment_notes where tenant_id = (select tenant_b from test_fixtures)), 0::bigint, 'the owner cannot read another tenant notes') from test_fixtures;
+select extensions.ok(not has_table_privilege('anon', 'public.appointment_services', 'SELECT'), 'anonymous clients cannot read order lines');
+select extensions.ok(not has_table_privilege('anon', 'public.appointment_notes', 'SELECT'), 'anonymous clients cannot read order notes');
 reset role;
 
 select extensions.is((select count(*) from public.notification_jobs where tenant_id = (select tenant_a from test_fixtures) and appointment_id = (select booking_a1 from test_fixtures) and job_type = 'booking_confirmed'), 1::bigint, 'an idempotent retry creates only one confirmation outbox job');

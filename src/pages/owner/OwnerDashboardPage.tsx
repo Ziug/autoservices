@@ -1,18 +1,24 @@
-import {useMemo, useState, type FormEvent} from 'react';
+import {useMemo, useRef, useState, type FormEvent} from 'react';
 import {addDays, format, getISODay, startOfDay} from 'date-fns';
 import {ru} from 'date-fns/locale';
 import {formatInTimeZone, fromZonedTime} from 'date-fns-tz';
 import {Link} from 'react-router-dom';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
-import {ArrowClockwise, ArrowLeft, ArrowRight, Check, Clock, CurrencyRub, SignOut, Wrench} from '@phosphor-icons/react';
+import {ArrowClockwise, ArrowLeft, ArrowRight, Check, Clock, CurrencyRub, NotePencil, Plus, SignOut, Wrench} from '@phosphor-icons/react';
 import {Button} from '@astryxdesign/core/Button';
+import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
+import {HStack, VStack} from '@astryxdesign/core/Stack';
 import {Heading, Text} from '@astryxdesign/core/Text';
+import {Layout, LayoutContent} from '@astryxdesign/core/Layout';
 import type {Appointment} from '@/domain/tenant';
 import {useTenant} from '@/App';
+import {OrderSummary, type OrderSummaryData} from '@/components/order-summary';
 import {dayLabel, localDateKey, localDayLabel, localTimeLabel, money} from '@/lib/format';
 import {createClientId} from '@/lib/id';
-import {loadOwnerSchedule, ownerAction, signOutOwner} from '@/lib/tenant-api';
-import {hasSupabaseConfig, supabase} from '@/lib/supabase';
+import {amountToMinor, computeOrderTotals, isValidCustomExtra} from '@/lib/order';
+import {loadOwnerSchedule, normalizeOwnerOrder, ownerAction, signOutOwner} from '@/lib/tenant-api';
+import type {OwnerOrder } from '@/lib/tenant-api';
+import {hasSupabaseConfig} from '@/lib/supabase';
 
 type Period = 'day' | 'week';
 type Schedule = Awaited<ReturnType<typeof loadOwnerSchedule>>;
@@ -46,19 +52,142 @@ function statusAction(status: Appointment['status']) {
   return null;
 }
 
-function AppointmentRow({appointment, business, refresh}: {appointment: Appointment; business: ReturnType<typeof useTenant>; refresh: () => Promise<void>}) {
+/** "+ Доп. услуга": catalog picker or custom name+price, with live total preview. */
+function ExtraServiceForm({appointment, order, business, mutation}: {
+  appointment: Appointment;
+  order: OwnerOrder;
+  business: ReturnType<typeof useTenant>;
+  mutation: ReturnType<typeof useMutation<unknown, Error, {action: string; payload: Record<string, unknown>}>>;
+}) {
+  const [catalogSlug, setCatalogSlug] = useState(business.services[0]?.slug ?? '');
+  const [customName, setCustomName] = useState('');
+  const [customPrice, setCustomPrice] = useState('');
+  const [error, setError] = useState('');
+  // One request id per opened form: a duplicate submit inserts nothing.
+  const requestId = useRef(createClientId());
+  const customMinor = amountToMinor(customPrice);
+  const catalogService = business.services.find((item) => item.slug === catalogSlug);
+  const previewMinor = catalogService ? catalogService.priceMinor : customMinor;
+  const canSubmit = Boolean(catalogService?.slug)
+    ? Boolean(catalogSlug)
+    : isValidCustomExtra(customName, customMinor);
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (mutation.isPending) return;
+    setError('');
+    if (catalogService) {
+      mutation.mutate({action: 'add-extra-service', payload: {appointmentId: appointment.id, requestId: requestId.current, serviceSlug: catalogSlug}});
+      return;
+    }
+    if (!isValidCustomExtra(customName, customMinor)) {
+      setError('Укажите название (2–100 символов) и цену больше нуля.');
+      return;
+    }
+    mutation.mutate({action: 'add-extra-service', payload: {appointmentId: appointment.id, requestId: requestId.current, name: customName.trim(), priceMinor: customMinor}});
+  };
+
+  const totals = computeOrderTotals(appointment.priceMinor, order.extras);
+  return (
+    <form className="inline-form extra-service-form" onSubmit={submit}>
+      <label className="field">
+        <small>Услуга из каталога</small>
+        <select aria-label="Услуга из каталога" onChange={(event) => setCatalogSlug(event.currentTarget.value)} value={catalogSlug}>
+          {business.services.map((service) => <option key={service.slug} value={service.slug}>{service.name} — {money(service.priceMinor, business.currency, business.locale)}</option>)}
+        </select>
+      </label>
+      <Text type="supporting" color="secondary">или своя услуга:</Text>
+      <label className="field">
+        <small>Название</small>
+        <input aria-label="Название своей услуги" maxLength={100} onChange={(event) => setCustomName(event.currentTarget.value)} placeholder="Например, химчистка сидений" value={customName} />
+      </label>
+      <label className="field">
+        <small>Цена ({business.currency})</small>
+        <input aria-label="Цена своей услуги" inputMode="decimal" min="0.01" onChange={(event) => setCustomPrice(event.currentTarget.value)} placeholder="Например, 3000" step="0.01" type="number" value={customPrice} />
+      </label>
+      <Text type="supporting" color="secondary">
+        Итог станет: {money(totals.totalMinor + (canSubmit ? (previewMinor ?? 0) : 0), business.currency, business.locale)}
+      </Text>
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+      <Button label="Добавить" size="sm" type="submit" variant="primary" icon={<Plus aria-hidden="true" />} isLoading={mutation.isPending} isDisabled={mutation.isPending || !canSubmit} />
+    </form>
+  );
+}
+
+/** Owner note capture: plain history rows, never overwritten. */
+function NoteForm({appointment, mutation}: {appointment: Appointment; mutation: ReturnType<typeof useMutation<unknown, Error, {action: string; payload: Record<string, unknown>}>>}) {
+  const [body, setBody] = useState('');
+  const requestId = useRef(createClientId());
+  return (
+    <form className="inline-form" onSubmit={(event) => {
+      event.preventDefault();
+      if (mutation.isPending) return;
+      const text = body.trim();
+      if (!text) return;
+      mutation.mutate({action: 'add-note', payload: {appointmentId: appointment.id, requestId: requestId.current, body: text}});
+      setBody('');
+      requestId.current = createClientId();
+    }}>
+      <label className="field">
+        <small>Заметка мастера</small>
+        <input aria-label="Заметка мастера" maxLength={1000} onChange={(event) => setBody(event.currentTarget.value)} placeholder="Что важно помнить по заказу" value={body} />
+      </label>
+      <Button label="Добавить заметку" size="sm" type="submit" variant="secondary" icon={<NotePencil aria-hidden="true" />} isLoading={mutation.isPending} isDisabled={mutation.isPending || !body.trim()} />
+    </form>
+  );
+}
+
+/** Payment history per appointment: charges and refunds, newest last (history order). */
+function OrderPaymentsList({order, business }: {order: OwnerOrder; business: ReturnType<typeof useTenant>}) {
+  if (order.payments.length === 0) return <Text type="supporting" color="secondary">Оплат пока нет.</Text>;
+  return (
+    <section className="order-payments">
+      {normalizeOwnerOrder(order).payments.map((payment) => (
+        <section className="order-line" key={payment.id} data-kind={payment.kind}>
+          <section className="order-line-copy">
+            <Text>{payment.kind === 'refund' ? 'Возврат' : 'Оплата'} · {payment.method}</Text>
+            <small>{localDayLabel(payment.receivedAt, business.timezone)} {localTimeLabel(payment.receivedAt, business.timezone)}{payment.note ? ` · ${payment.note}` : ''}</small>
+          </section>
+          <strong className="order-line-price">{payment.kind === 'refund' ? '−' : '+'}{money(payment.amountMinor, business.currency, business.locale)}</strong>
+        </section>
+      ))}
+    </section>
+  );
+}
+
+function AppointmentRow({appointment, business, order, refresh}: {appointment: Appointment; business: ReturnType<typeof useTenant>; order: OwnerOrder; refresh: () => Promise<void>}) {
   const [moveTo, setMoveTo] = useState(() => localInputValue(appointment.startsAt, business.timezone));
   const [payment, setPayment] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
+  const [showExtra, setShowExtra] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
+  const summaryGuard = useRef(false);
   const mutation = useMutation({
     mutationFn: ({action, payload}: {action: string; payload: Record<string, unknown>}) => ownerAction(business, action, payload),
     onSuccess: async () => { setError(''); await refresh(); },
     onError: (caught) => setError(caught instanceof Error ? caught.message : 'Не удалось сохранить действие.'),
   });
   const next = statusAction(appointment.status);
-
-  const setStatus = (status: 'checked_in' | 'in_progress' | 'completed' | 'no_show') => mutation.mutate({action: 'set-status', payload: {appointmentId: appointment.id, status}});
+  const active = !['cancelled', 'completed', 'no_show'].includes(appointment.status);
+  const summaryData: OrderSummaryData = {
+    appointmentId: appointment.id,
+    serviceName: appointment.serviceName,
+    startsAt: appointment.startsAt,
+    customerName: appointment.customerName,
+    customerNote: appointment.customerNote ?? '',
+    originalMinor: appointment.priceMinor,
+    extras: normalizeOwnerOrder(order).extras,
+    notes: normalizeOwnerOrder(order).notes,
+    payments: normalizeOwnerOrder(order).payments,
+  };
+  const totals = computeOrderTotals(appointment.priceMinor, order.extras, order.payments);
+  // Completion always goes through the summary so the owner sees the whole
+  // order (extras, comments, payments, refunds, balance) before confirming.
+  const runStatus = (status: 'checked_in' | 'in_progress' | 'completed' | 'no_show') => {
+    if (status === 'completed') { setShowSummary(true); return; }
+    mutation.mutate({action: 'set-status', payload: {appointmentId: appointment.id, status}});
+  };
   const cancel = () => {
     if (window.confirm('Отменить эту запись и освободить пост?')) mutation.mutate({action: 'cancel', payload: {appointmentId: appointment.id}});
   };
@@ -69,9 +198,11 @@ function AppointmentRow({appointment, business, refresh}: {appointment: Appointm
   };
   const addPayment = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const amountMinor = Math.round(Number(payment) * 100);
-    if (!Number.isFinite(amountMinor) || amountMinor <= 0) { setError('Введите сумму больше нуля.'); return; }
+    if (mutation.isPending) return;
+    const amountMinor = amountToMinor(payment);
+    if (amountMinor === null) { setError('Введите сумму больше нуля.'); return; }
     mutation.mutate({action: 'add-payment', payload: {appointmentId: appointment.id, kind: 'charge', amountMinor, method: 'cash', note}});
+    setPayment('');
   };
 
   return (
@@ -80,29 +211,67 @@ function AppointmentRow({appointment, business, refresh}: {appointment: Appointm
         <section className="appointment-status"><strong>{localTimeLabel(appointment.startsAt, business.timezone)}</strong><small className={`status-pill status-${appointment.status}`}>{statusLabel(appointment.status)}</small></section>
         <strong>{appointment.customerName} · {appointment.vehicle}</strong>
         <small>{appointment.serviceName} · {appointment.resourceLabel ?? 'Пост не назначен'} · {money(appointment.priceMinor, business.currency, business.locale)}</small>
+        {totals.extrasMinor > 0 ? <small data-testid="extras-total">Доп. услуги: {money(totals.extrasMinor, business.currency, business.locale)} · Итог: {money(totals.totalMinor, business.currency, business.locale)}</small> : null}
+        {totals.balanceMinor > 0 ? <small data-testid="balance-due">Остаток: {money(totals.balanceMinor, business.currency, business.locale)}</small> : null}
         <a href={`tel:${appointment.customerPhone.replaceAll(' ', '')}`}>{appointment.customerPhone}</a>
       </section>
       <section className="appointment-controls">
-        {next ? <Button label={next.label} size="sm" variant="primary" onClick={() => setStatus(next.next)} isLoading={mutation.isPending} /> : null}
+        {next ? <Button label={next.label} size="sm" variant="primary" onClick={() => runStatus(next.next)} isLoading={mutation.isPending} /> : null}
+        {active ? <Button label="+ Доп. услуга" size="sm" variant="secondary" icon={<Plus aria-hidden="true" />} onClick={() => setShowExtra((open) => !open)} /> : null}
+        {active ? <Button label="Итог заказа" size="sm" variant="ghost" onClick={() => setShowSummary(true)} /> : null}
         {appointment.status === 'confirmed' || appointment.status === 'checked_in' ? <Button label="Отменить" size="sm" variant="destructive" onClick={cancel} isLoading={mutation.isPending} /> : null}
-        {appointment.status === 'confirmed' ? <Button label="Не приехал" size="sm" variant="secondary" onClick={() => setStatus('no_show')} isLoading={mutation.isPending} /> : null}
+        {appointment.status === 'confirmed' ? <Button label="Не приехал" size="sm" variant="secondary" onClick={() => runStatus('no_show')} isLoading={mutation.isPending} /> : null}
       </section>
-      {appointment.status !== 'cancelled' && appointment.status !== 'completed' && appointment.status !== 'no_show' ? (
+      {showExtra && active ? <ExtraServiceForm appointment={appointment} order={order} business={business} mutation={mutation} /> : null}
+      {active ? (
         <details className="appointment-tools">
-          <summary>Перенос и оплата</summary>
+          <summary>Перенос, оплата и заметки</summary>
           <form className="inline-form" onSubmit={move}>
             <label className="field"><small>Новое время</small><input aria-label="Новое время записи" onChange={(event) => setMoveTo(event.currentTarget.value)} type="datetime-local" value={moveTo} /></label>
             <Button label="Перенести" type="submit" size="sm" variant="secondary" isLoading={mutation.isPending} />
           </form>
+          <OrderPaymentsList order={order} business={business} />
           <form className="inline-form" onSubmit={addPayment}>
             <label className="field"><small>Получено, {business.currency}</small><input inputMode="decimal" min="0.01" onChange={(event) => setPayment(event.currentTarget.value)} placeholder="Например, 5000" step="0.01" type="number" value={payment} /></label>
             <label className="field"><small>Комментарий</small><input maxLength={300} onChange={(event) => setNote(event.currentTarget.value)} value={note} /></label>
-            <Button label="Записать оплату" type="submit" size="sm" variant="secondary" icon={<CurrencyRub />} isLoading={mutation.isPending} />
+            <Button label="Записать оплату" type="submit" size="sm" variant="secondary" icon={<CurrencyRub />} isLoading={mutation.isPending} isDisabled={mutation.isPending} />
           </form>
           <RefundForm appointment={appointment} business={business} mutation={mutation} setError={setError} />
+          <NoteForm appointment={appointment} mutation={mutation} />
         </details>
       ) : null}
       {error ? <p className="form-error" role="alert">{error}</p> : null}
+      <Dialog isOpen={showSummary} onOpenChange={setShowSummary} purpose="form" width={560}>
+        <Layout
+          header={<DialogHeader title="Итог по заказу" onOpenChange={setShowSummary} />}
+          content={
+            <LayoutContent>
+              <VStack gap={3}>
+                <Text type="supporting" color="secondary">
+                  Проверьте доп. услуги, комментарии, оплаты и остаток перед завершением. Завершение не означает оплату — деньги учитываются только по журналу оплат.
+                </Text>
+                <OrderSummary order={summaryData} currency={business.currency} locale={business.locale} timezone={business.timezone} />
+                <HStack gap={2}>
+                  <Button label="Закрыть" variant="ghost" onClick={() => setShowSummary(false)} />
+                  {appointment.status === 'in_progress' ? (
+                    <Button
+                      label="Отметить готово"
+                      variant="primary"
+                      isLoading={mutation.isPending}
+                      isDisabled={mutation.isPending || summaryGuard.current}
+                      onClick={() => {
+                        if (summaryGuard.current || mutation.isPending) return;
+                        summaryGuard.current = true;
+                        mutation.mutate({action: 'set-status', payload: {appointmentId: appointment.id, status: 'completed'}});
+                      }}
+                    />
+                  ) : null}
+                </HStack>
+              </VStack>
+            </LayoutContent>
+          }
+        />
+      </Dialog>
     </article>
   );
 }
@@ -164,6 +333,7 @@ export function OwnerDashboardPage() {
   const logout = async () => { await signOutOwner(); await queryClient.clear(); };
   const queryErrorText = scheduleQuery.error instanceof Error ? scheduleQuery.error.message : 'Не удалось загрузить расписание.';
   const appointments = scheduleQuery.data?.appointments ?? [];
+  const orders = scheduleQuery.data?.orders ?? {};
   const dateHead = (date: string) => format(new Date(`${date}T12:00:00Z`), 'EEEE, d MMMM', {locale: ru});
 
   const addManual = (event: FormEvent<HTMLFormElement>) => {
@@ -218,7 +388,7 @@ export function OwnerDashboardPage() {
       {scheduleQuery.isSuccess && period === 'day' ? (
         <section className="owner-panel">
           <header className="section-heading"><section><p className="eyebrow">Сегодня в расписании</p><Heading level={2}>{dateHead(selectedDate)}</Heading></section><Text><Clock aria-hidden="true" /> {business.timezone}</Text></header>
-          {appointments.length ? <section className="schedule-list">{appointments.map((appointment) => <AppointmentRow appointment={appointment} business={business} key={appointment.id} refresh={refresh} />)}</section> : <p className="empty-state">На эту дату записей нет.</p>}
+          {appointments.length ? <section className="schedule-list">{appointments.map((appointment) => <AppointmentRow appointment={appointment} business={business} key={appointment.id} order={orders[appointment.id] ?? {extras: [], notes: [], payments: []}} refresh={refresh} />)}</section> : <p className="empty-state">На эту дату записей нет.</p>}
         </section>
       ) : null}
       {scheduleQuery.isSuccess && period === 'week' ? (
@@ -227,7 +397,7 @@ export function OwnerDashboardPage() {
             const daily = appointments.filter((appointment) => localDateKey(new Date(appointment.startsAt), business.timezone) === date);
             return <section className="owner-panel week-day-panel" key={date}>
               <header className="section-heading"><Heading level={2}>{dateHead(date)}</Heading><Text type="supporting">{daily.length} {daily.length === 1 ? 'запись' : 'записей'}</Text></header>
-              {daily.length ? <section className="schedule-list">{daily.map((appointment) => <AppointmentRow appointment={appointment} business={business} key={appointment.id} refresh={refresh} />)}</section> : <p className="empty-state">Пока свободно.</p>}
+              {daily.length ? <section className="schedule-list">{daily.map((appointment) => <AppointmentRow appointment={appointment} business={business} key={appointment.id} order={orders[appointment.id] ?? {extras: [], notes: [], payments: []}} refresh={refresh} />)}</section> : <p className="empty-state">Пока свободно.</p>}
             </section>;
           })}
         </section>

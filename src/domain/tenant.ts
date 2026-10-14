@@ -70,6 +70,8 @@ export type Appointment = {
   resourceLabel?: string;
   accessToken?: string;
   demo?: boolean;
+  /** Customer comment captured at booking time (may be empty). */
+  customerNote?: string;
 };
 
 export type AvailabilitySlot = {startsAt: string; availableCount: number};

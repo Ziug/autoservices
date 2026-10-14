@@ -104,6 +104,7 @@ const listAppointmentsSchema = z.object({
   to: dateTime.optional(),
   ...pagination,
 }).strict();
+const getOrderSchema = z.object({appointmentId: uuid}).strict();
 const listPaymentsSchema = z.object({
   tenantId: uuid,
   from: dateTime.optional(),
@@ -646,7 +647,86 @@ Deno.serve(async (request) => {
         if (args.to) query = query.lt('starts_at', args.to);
         const {data, count, error} = await query;
         if (error) throw error;
-        return json(request, {appointments: data ?? [], total: count ?? 0, limit: args.limit, offset: args.offset});
+        const appointments = (data ?? []) as Array<Record<string, unknown>>;
+        const ids = appointments.map((row) => row['id'] as string);
+        // Order context for the table: extras sum (final total = price + extras),
+        // owner notes count, and the payments journal for the dialog.
+        let extras: Array<Record<string, unknown>> = [];
+        let notes: Array<Record<string, unknown>> = [];
+        let payments: Array<Record<string, unknown>> = [];
+        if (ids.length > 0) {
+          const [extrasResult, notesResult, paymentsResult] = await Promise.all([
+            admin.from('appointment_services').select('appointment_id,price_minor').eq('tenant_id', args.tenantId).in('appointment_id', ids),
+            admin.from('appointment_notes').select('appointment_id').eq('tenant_id', args.tenantId).in('appointment_id', ids),
+            admin.from('payments').select('appointment_id,kind,amount_minor').eq('tenant_id', args.tenantId).in('appointment_id', ids),
+          ]);
+          if (extrasResult.error) throw extrasResult.error;
+          if (notesResult.error) throw notesResult.error;
+          if (paymentsResult.error) throw paymentsResult.error;
+          extras = (extrasResult.data ?? []) as Array<Record<string, unknown>>;
+          notes = (notesResult.data ?? []) as Array<Record<string, unknown>>;
+          payments = (paymentsResult.data ?? []) as Array<Record<string, unknown>>;
+        }
+        const extrasByAppointment = new Map<string, number>();
+        for (const row of extras) {
+          const key = String(row['appointment_id']);
+          extrasByAppointment.set(key, (extrasByAppointment.get(key) ?? 0) + Number(row['price_minor'] ?? 0));
+        }
+        const notesByAppointment = new Map<string, number>();
+        for (const row of notes) {
+          const key = String(row['appointment_id']);
+          notesByAppointment.set(key, (notesByAppointment.get(key) ?? 0) + 1);
+        }
+        const paymentsByAppointment = new Map<string, {paidMinor: number; refundedMinor: number}>();
+        for (const row of payments) {
+          const key = String(row['appointment_id']);
+          const current = paymentsByAppointment.get(key) ?? {paidMinor: 0, refundedMinor: 0};
+          const amount = Number(row['amount_minor'] ?? 0);
+          if (row['kind'] === 'refund') current.refundedMinor += amount;
+          else current.paidMinor += amount;
+          paymentsByAppointment.set(key, current);
+        }
+        return json(request, {
+          appointments: appointments.map((row) => ({
+            ...row,
+            extrasMinor: extrasByAppointment.get(String(row['id'])) ?? 0,
+            notesCount: notesByAppointment.get(String(row['id'])) ?? 0,
+            paidMinor: paymentsByAppointment.get(String(row['id']))?.paidMinor ?? 0,
+            refundedMinor: paymentsByAppointment.get(String(row['id']))?.refundedMinor ?? 0,
+          })),
+          total: count ?? 0,
+          limit: args.limit,
+          offset: args.offset,
+        });
+      }
+      case 'get-order': {
+        const args = z.object({appointmentId: uuid}).strict().parse(params);
+        const {data: appointment, error: appointmentError} = await admin.from('appointments')
+          .select(APPOINTMENT_COLUMNS).eq('id', args.appointmentId).maybeSingle();
+        if (appointmentError) throw appointmentError;
+        if (!appointment) return json(request, {error: 'Appointment not found.'}, 404);
+        const tenantId = (appointment as {tenant_id: string}).tenant_id;
+        const [extrasResult, notesResult, paymentsResult, serviceResult, resourceResult] = await Promise.all([
+          admin.from('appointment_services').select('id,service_id,name,price_minor,kind,created_at').eq('tenant_id', tenantId).eq('appointment_id', args.appointmentId).order('created_at'),
+          admin.from('appointment_notes').select('id,body,created_at').eq('tenant_id', tenantId).eq('appointment_id', args.appointmentId).order('created_at'),
+          admin.from('payments').select('id,kind,amount_minor,method,note,received_at').eq('tenant_id', tenantId).eq('appointment_id', args.appointmentId).order('received_at'),
+          admin.from('services').select('name').eq('tenant_id', tenantId).eq('id', (appointment as {service_id: string}).service_id).maybeSingle(),
+          admin.from('resources').select('name').eq('tenant_id', tenantId).eq('id', (appointment as {resource_id: string}).resource_id).maybeSingle(),
+        ]);
+        if (extrasResult.error) throw extrasResult.error;
+        if (notesResult.error) throw notesResult.error;
+        if (paymentsResult.error) throw paymentsResult.error;
+        const {data: tenant, error: tenantError} = await admin.from('tenants').select('slug,name').eq('id', tenantId).maybeSingle();
+        if (tenantError) throw tenantError;
+        return json(request, {
+          appointment,
+          tenant: tenant ?? null,
+          serviceName: (serviceResult.data as {name?: string} | null)?.name ?? 'Услуга',
+          resourceLabel: (resourceResult.data as {name?: string} | null)?.name ?? null,
+          extras: extrasResult.data ?? [],
+          notes: notesResult.data ?? [],
+          payments: paymentsResult.data ?? [],
+        });
       }
       case 'list-payments': {
         const args = listPaymentsSchema.parse(params);
@@ -664,8 +744,41 @@ Deno.serve(async (request) => {
         const [{data, count, error}, totals] = await Promise.all([rowsQuery, totalsQuery]);
         if (error) throw error;
         if (totals.error) throw totals.error;
+        const rows = (data ?? []) as Array<Record<string, unknown>>;
+        // Attach the appointment to each payment so the admin never has to
+        // search manually (customer, date, service).
+        const appointmentIds = [...new Set(rows.map((row) => String(row['appointment_id'])).filter((value) => value && value !== 'null'))];
+        const appointmentMap = new Map<string, {customerName: string; startsAt: string; serviceName: string; tenantId: string}>();
+        if (appointmentIds.length > 0) {
+          const {data: appointmentRows, error: appointmentError} = await admin.from('appointments')
+            .select('id,tenant_id,customer_name,starts_at,service_id').in('id', appointmentIds);
+          if (appointmentError) throw appointmentError;
+          const serviceIds = [...new Set(((appointmentRows ?? []) as Array<Record<string, unknown>>).map((row) => String(row['service_id'])))];
+          const {data: serviceRows, error: serviceError} = await admin.from('services').select('id,name').in('id', serviceIds);
+          if (serviceError) throw serviceError;
+          const serviceNames = new Map(((serviceRows ?? []) as Array<Record<string, unknown>>).map((row) => [String(row['id']), String(row['name'])]));
+          for (const row of (appointmentRows ?? []) as Array<Record<string, unknown>>) {
+            appointmentMap.set(String(row['id']), {
+              customerName: String(row['customer_name'] ?? ''),
+              startsAt: String(row['starts_at'] ?? ''),
+              serviceName: serviceNames.get(String(row['service_id'])) ?? 'Услуга',
+              tenantId: String(row['tenant_id']),
+            });
+          }
+        }
         return json(request, {
-          payments: data ?? [],
+          payments: rows.map((row) => {
+            const linked = appointmentMap.get(String(row['appointment_id']));
+            return {
+              ...row,
+              appointment: linked ? {
+                customerName: linked.customerName,
+                startsAt: linked.startsAt,
+                serviceName: linked.serviceName,
+                tenantId: linked.tenantId,
+              } : null,
+            };
+          }),
           total: count ?? 0,
           limit: args.limit,
           offset: args.offset,
