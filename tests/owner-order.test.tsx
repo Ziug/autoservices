@@ -140,14 +140,14 @@ describe('owner dashboard order handling', () => {
     )(table));
     render(<Page business={studio()} />);
     fireEvent.click(await screen.findByRole('button', {name: 'Итог заказа'}));
-    const summary = await screen.findByLabelText('Итог по заказу');
+    const summary = (await screen.findAllByLabelText('Итог по заказу')).at(-1)!;
     expect(summary.textContent).toContain('Мойка');
     expect(summary.textContent).toContain('Доп. полировка');
     expect(summary.textContent).toContain('Царапина на двери');
     expect(summary.textContent).toContain('Помоешь и коврики');
     // 4900 original + 1500 extras = 6400 total; 4000 paid -> 2400 balance.
-    expect(screen.getByTestId('order-total').textContent).toContain('6');
-    expect(screen.getByTestId('order-balance').textContent).toContain('2');
+    expect(screen.getAllByTestId('order-total').at(-1)!.textContent).toContain('6');
+    expect(screen.getAllByTestId('order-balance').at(-1)!.textContent).toContain('2');
   });
 
   it('completes an appointment through the summary dialog and preserves history', async () => {

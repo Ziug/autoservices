@@ -273,6 +273,12 @@ function AppointmentRow({appointment, business, order, refresh}: {appointment: A
         {appointment.status === 'confirmed' ? <Button label="Не приехал" size="sm" variant="secondary" onClick={() => runStatus('no_show')} isLoading={mutation.isPending} /> : null}
       </section>
       {showExtra && active ? <ExtraServiceForm appointment={appointment} order={order} business={business} mutation={mutation} /> : null}
+      {order.extras.length > 0 ? (
+        <section className="appointment-extras" aria-label="Доп. услуги записи">
+          <Text type="supporting" color="secondary">Доп. услуги</Text>
+          <ExtraServicesList appointment={appointment} order={order} business={business} mutation={mutation} />
+        </section>
+      ) : null}
       {active ? (
         <details className="appointment-tools">
           <summary>Перенос, оплата и заметки</summary>
