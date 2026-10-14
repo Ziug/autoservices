@@ -174,6 +174,14 @@
   padding-block-start: var(--spacing-3);
 }
 
+/* The setup workspace keeps inactive panels mounted (hidden, not unmounted)
+   so form drafts survive tab switches. `display: grid` above beats the UA
+   `[hidden] { display: none }` rule, so re-assert it here — without this,
+   every panel stays visible and tab clicks appear to do nothing. */
+.admin-tab-panel[hidden] {
+  display: none;
+}
+
 .admin-link {
   color: var(--color-text-accent);
   font-weight: 600;
