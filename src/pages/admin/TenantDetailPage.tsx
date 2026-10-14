@@ -183,7 +183,7 @@ function DefinitionRow({label, value}: {label: string; value: string}) {
   );
 }
 
-/** Tenant detail: tabbed overview, bookings, catalog, payments, read-only settings, audit + lifecycle actions. */
+/** Tenant detail: tabbed overview, bookings, catalog, owners, payments, settings summary, audit + lifecycle actions. Full editing lives in the setup workspace (reachable for every non-archived tenant via «Настройка»). */
 export function TenantDetailPage() {
   const {tenantId = ''} = useParams();
   const queryClient = useQueryClient();
@@ -397,8 +397,13 @@ export function TenantDetailPage() {
           </HStack>
         </section>
         <section className="admin-actions" aria-label="Действия со студией">
-          {tenant.visibility === 'draft' || tenant.visibility === 'preview' ? (
-            <Button label="Настройка и публикация" variant="primary" icon={<ArrowSquareOut aria-hidden="true" />} href={adminUrl('tenants', tenant.id, 'setup')} />
+          {!tenant.archived ? (
+            <Button
+              label={tenant.visibility === 'live' || tenant.visibility === 'suspended' ? 'Настройка' : 'Настройка и публикация'}
+              variant="primary"
+              icon={<ArrowSquareOut aria-hidden="true" />}
+              href={adminUrl('tenants', tenant.id, 'setup')}
+            />
           ) : null}
           {!tenant.suspended && !tenant.archived ? (
             <Button label="Приостановить" variant="secondary" icon={<PauseCircle aria-hidden="true" />} onClick={openSuspend} />
@@ -761,8 +766,17 @@ export function TenantDetailPage() {
         <section className="admin-tab-panel" role="tabpanel" aria-label="Настройки студии">
           <Heading level={2}>Настройки</Heading>
           <Text type="supporting" color="secondary">
-            Только чтение: изменения вносит владелец в своём кабинете.
+            Сводка текущих значений. Изменения — в рабочей области настройки: профиль, услуги, посты, часы, демо-режим и публикация.
           </Text>
+          {!tenant.archived ? (
+            <HStack gap={2}>
+              <Button label="Открыть настройку" variant="primary" icon={<ArrowSquareOut aria-hidden="true" />} href={adminUrl('tenants', tenant.id, 'setup')} />
+            </HStack>
+          ) : (
+            <Text type="supporting" color="secondary">
+              Студия в архиве: сначала верните её из архива, затем настройка станет доступна.
+            </Text>
+          )}
           <section className="admin-definition-list">
             <DefinitionRow label="Название" value={tenant.name} />
             <DefinitionRow label="Адрес" value={tenant.slug} />

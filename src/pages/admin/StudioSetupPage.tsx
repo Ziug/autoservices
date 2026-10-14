@@ -402,6 +402,20 @@ export function StudioSetupPage() {
       </header>
 
       {notice ? <Banner status={bannerStatus} title={notice.kind === 'error' ? 'Не удалось сохранить' : 'Готово'} description={notice.text} isDismissable onDismiss={() => setNotice(null)} /> : null}
+      {detail.tenant.visibility === 'suspended' ? (
+        <Banner
+          status="warning"
+          title="Студия приостановлена"
+          description="Запись остановлена, но правки сохраняются. После исправлений возобновите работу из карточки студии."
+        />
+      ) : null}
+      {detail.tenant.visibility === 'archived' ? (
+        <Banner
+          status="error"
+          title="Студия в архиве"
+          description="Правки сохраняются, но страница недоступна клиентам. Верните студию из архива и возобновите работу из карточки студии."
+        />
+      ) : null}
 
       <section className="admin-tab-scroll">
         <TabList value={tab} onChange={(value) => setTab(value as AdminSetupTab)} hasDivider>
