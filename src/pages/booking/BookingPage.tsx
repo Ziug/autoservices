@@ -93,6 +93,21 @@ export function BookingPage() {
     enabled: Boolean(service && day),
   });
   const availableSlots = useMemo(() => availabilityQuery.data?.filter((slot) => slot.availableCount > 0) ?? [], [availabilityQuery.data]);
+  // Weekday of the selected day in studio time (0 = Sunday, matches openingHours).
+  const selectedWeekday = useMemo(() => {
+    const noon = fromZonedTime(`${day}T12:00:00`, business.timezone);
+    return Number(formatInTimeZone(noon, business.timezone, 'i')) % 7;
+  }, [day, business.timezone]);
+  const openThatDay = business.openingHours.some((hours) => hours.weekday === selectedWeekday);
+  // Same compatibility rule as the server (and admin validation): with zero
+  // compatible active posts the service can never produce a slot.
+  const compatiblePosts = useMemo(() => {
+    if (!service) return [];
+    const types = service.resourceTypes ?? ['any'];
+    return business.resources.filter(
+      (resource) => (resource.active ?? true) && (types.includes('any') || resource.resourceType === 'any' || types.includes(resource.resourceType)),
+    );
+  }, [service, business.resources]);
   const selectedSlot = availabilityQuery.data?.find((slot) => slot.startsAt === startsAt);
   const bookingMutation = useMutation({
     mutationFn: (contact: BookingContact) => reserveAppointment({business, service: service!, startsAt, ...contact, idempotencyKey}),
@@ -322,7 +337,15 @@ export function BookingPage() {
                       <section className="booking-section-caption"><Clock aria-hidden="true" /><Text>Время студии</Text></section>
                       {availabilityQuery.isLoading ? <p className="booking-inline-state" role="status">Проверяем расписание…</p> : null}
                       {availabilityQuery.isError ? <section className="booking-inline-error" role="alert"><Text>{availabilityQuery.error instanceof Error ? availabilityQuery.error.message : 'Не удалось загрузить расписание.'}</Text><Button label="Повторить" variant="secondary" size="sm" onClick={() => void availabilityQuery.refetch()} /></section> : null}
-                      {availabilityQuery.isSuccess && !availableSlots.length ? <p className="booking-inline-state">На эту дату свободных окон нет. Попробуйте соседний день.</p> : null}
+                      {availabilityQuery.isSuccess && !availableSlots.length ? (
+                        <p className="booking-inline-state" role="status">
+                          {!openThatDay
+                            ? 'В этот день студия закрыта по обычному графику. Выберите другой день.'
+                            : service && compatiblePosts.length === 0
+                              ? 'Для этой услуги сейчас нет подходящего поста. Позвоните в студию — подскажем варианты.'
+                              : 'На эту дату свободных окон нет. Попробуйте соседний день.'}
+                        </p>
+                      ) : null}
                       {availableSlots.length ? (
                         <section className="booking-time-list" aria-label="Доступные окна">
                           {availableSlots.map((slot) => {

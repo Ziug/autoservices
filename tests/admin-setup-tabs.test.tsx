@@ -1,5 +1,5 @@
 import {describe, expect, it, vi, afterEach} from 'vitest';
-import {render, screen, fireEvent, cleanup, waitFor, within} from '@testing-library/react';
+import {render, screen, fireEvent, cleanup, waitFor} from '@testing-library/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {MemoryRouter, Route, Routes} from 'react-router-dom';
 
@@ -73,8 +73,14 @@ describe('studio setup tabs', () => {
   afterEach(() => cleanup());
 
   it('shows only the selected panel; hidden panels stay hidden', async () => {
-    render(<Page />);
-    const panel = (name: string) => screen.getByRole('tabpanel', {name, hidden: true});
+    const {container} = render(<Page />);
+    // NOTE: role+name queries skip `hidden` subtrees in this testing-library
+    // version, so panels are located by aria-label instead.
+    const panel = (name: string) => {
+      const found = container.querySelector(`section[role="tabpanel"][aria-label="${name}"]`);
+      if (!found) throw new Error(`panel missing: ${name}`);
+      return found;
+    };
     await waitFor(() => expect(panel('Обзор настройки')).toBeTruthy());
 
     // Initially the overview is shown and services hidden.
@@ -85,7 +91,7 @@ describe('studio setup tabs', () => {
 
     await waitFor(() => expect(panel('Услуги студии').hasAttribute('hidden')).toBe(false));
     expect(panel('Обзор настройки').hasAttribute('hidden')).toBe(true);
-    // Sanity: the tab strip itself reports the selection.
-    expect(within(screen.getAllByRole('button', {name: 'Услуги'})[0]).getByText('Услуги')).toBeTruthy();
+    // Sanity: the tab strip itself marks the selection (nav pattern).
+    expect(screen.getAllByRole('button', {name: 'Услуги'})[0].getAttribute('aria-current')).toBe('true');
   });
 });
