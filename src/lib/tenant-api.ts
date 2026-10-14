@@ -59,10 +59,34 @@ export async function loadBusiness(slug: string, options: {includeInactive?: boo
   });
 }
 
+type SlotRow = {starts_at?: unknown; available_count?: unknown; startsAt?: unknown; availableCount?: unknown};
+
+/**
+ * Boundary mapping for get-slots rows. The RPC returns Postgres column names
+ * (`starts_at`, `available_count`) and the Edge Function passes them through
+ * unchanged, while the app (and the offline demo engine) speaks camelCase.
+ * A missing mapping here silently empties every day: `availableCount` reads
+ * `undefined`, the `> 0` filter drops all rows, and no slot can be confirmed.
+ * Zero-count rows are preserved (the page decides emptiness); malformed rows
+ * without a usable start time are dropped.
+ */
+export function toAvailableSlots(rows: unknown): AvailabilitySlot[] {
+  if (!Array.isArray(rows)) return [];
+  const mapped: AvailabilitySlot[] = [];
+  for (const row of rows as SlotRow[]) {
+    if (!row || typeof row !== 'object') continue;
+    const startsAt = typeof row.starts_at === 'string' ? row.starts_at : typeof row.startsAt === 'string' ? row.startsAt : null;
+    const rawCount = typeof row.available_count === 'number' ? row.available_count : typeof row.availableCount === 'number' ? row.availableCount : null;
+    if (startsAt === null || rawCount === null) continue;
+    mapped.push({startsAt, availableCount: rawCount});
+  }
+  return mapped;
+}
+
 export async function loadAvailability(business: BusinessConfig, service: Service, day: string): Promise<AvailabilitySlot[]> {
   const {data, error} = await requireSupabase().functions.invoke('get-slots', {body: {slug: business.slug, serviceSlug: service.slug, day}});
   if (error) throw new Error(`Не удалось проверить свободное время: ${error.message}`);
-  return (data?.slots ?? []) as AvailabilitySlot[];
+  return toAvailableSlots((data as {slots?: unknown} | null)?.slots);
 }
 
 export async function reserveAppointment(input: {

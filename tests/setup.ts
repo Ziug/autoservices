@@ -16,6 +16,13 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
   }) as unknown as MediaQueryList);
 }
 
+// jsdom has no Web Animations API; the booking flow guards on
+// prefers-reduced-motion but otherwise calls node.animate(). A minimal stub
+// keeps step-transition tests focused on app behavior.
+if (typeof window !== 'undefined' && typeof Element !== 'undefined' && typeof Element.prototype.animate !== 'function') {
+  Element.prototype.animate = (() => ({cancel: () => {}, finished: Promise.resolve()})) as unknown as typeof Element.prototype.animate;
+}
+
 afterEach(() => {
   localStorage.clear();
 });
