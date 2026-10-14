@@ -83,9 +83,35 @@ export function toAvailableSlots(rows: unknown): AvailabilitySlot[] {
   return mapped;
 }
 
+/**
+ * Best-effort read of the server's {error} body from a FunctionsHttpError.
+ * supabase-js v2 puts a generic English text in error.message; the actual
+ * Russian message (e.g. SLOT_TAKEN) travels in error.context (Response).
+ * Without this, message-matching branches in the booking flow are dead.
+ */
+async function readFunctionErrorBody(error: unknown): Promise<string | null> {
+  try {
+    const context = (error as {context?: unknown}).context;
+    if (context instanceof Response) {
+      const body = (await context.clone().json()) as {error?: unknown};
+      if (body && typeof body.error === 'string' && body.error) return body.error;
+    }
+  } catch {
+    // Fall through to the generic message.
+  }
+  return null;
+}
+
+async function functionError(prefix: string, fallback: string, error: unknown): Promise<never> {
+  const detail = await readFunctionErrorBody(error);
+  if (detail) throw new Error(detail);
+  const message = error instanceof Error && error.message ? error.message : fallback;
+  throw new Error(prefix ? `${prefix}: ${message}` : message);
+}
+
 export async function loadAvailability(business: BusinessConfig, service: Service, day: string): Promise<AvailabilitySlot[]> {
   const {data, error} = await requireSupabase().functions.invoke('get-slots', {body: {slug: business.slug, serviceSlug: service.slug, day}});
-  if (error) throw new Error(`Не удалось проверить свободное время: ${error.message}`);
+  if (error) await functionError('Не удалось проверить свободное время', 'Не удалось проверить свободное время.', error);
   return toAvailableSlots((data as {slots?: unknown} | null)?.slots);
 }
 
@@ -109,19 +135,19 @@ export async function reserveAppointment(input: {
       idempotencyKey: input.idempotencyKey,
     },
   });
-  if (error) throw new Error(error.message || 'Не удалось оформить запись.');
+  if (error) await functionError('', 'Не удалось оформить запись.', error);
   return data as {appointment: Appointment; accessToken: string};
 }
 
 export async function loadAppointmentAccess(business: BusinessConfig, appointmentId: string, accessToken: string) {
   const {data, error} = await requireSupabase().functions.invoke('appointment-access', {body: {slug: business.slug, appointmentId, accessToken}});
-  if (error) throw new Error(error.message || 'Не удалось загрузить запись.');
+  if (error) await functionError('', 'Не удалось загрузить запись.', error);
   return data?.appointment as Appointment;
 }
 
 export async function cancelAppointment(business: BusinessConfig, appointmentId: string, accessToken: string) {
   const {data, error} = await requireSupabase().functions.invoke('cancel-appointment', {body: {slug: business.slug, appointmentId, accessToken}});
-  if (error) throw new Error(error.message || 'Не удалось отменить запись.');
+  if (error) await functionError('', 'Не удалось отменить запись.', error);
   return data as {cancelled: boolean};
 }
 

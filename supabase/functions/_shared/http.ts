@@ -100,12 +100,21 @@ export function errorStatus(error: unknown) {
 }
 
 export function errorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
+  // PostgREST failures surface as plain objects (no Error prototype) in the
+  // edge runtime: read .message structurally instead of relying on instanceof.
+  const message = error instanceof Error && error.message
+    ? error.message
+    : typeof error === 'object' && error !== null && typeof (error as {message?: unknown}).message === 'string'
+      ? (error as {message: string}).message
+      : String(error);
   const code = (error as {code?: string})?.code;
   if (code === '23P01' || message.includes('SLOT_TAKEN')) return 'Это окно только что заняли. Выберите другое время.';
   if (code === 'P0002') return 'Студия или услуга не найдена.';
   if (code === '42501') return 'Нет прав для этого действия.';
+  if (code === '22023' && message.includes('OUTSIDE_OPENING_HOURS')) return 'Выбранное время выходит за часы работы студии.';
   if (code === '22023') return message.replaceAll('_', ' ').toLocaleLowerCase('ru-RU');
-  if (/Supabase server environment|BOOKING_TOKEN_SECRET/.test(message)) return message;
+  // Server misconfiguration must never be fingerprinted to anonymous callers:
+  // the real error stays in the function logs, clients get the generic text.
+  if (/Supabase server environment|BOOKING_TOKEN_SECRET/.test(message)) return 'Не удалось выполнить запрос. Попробуйте ещё раз.';
   return 'Не удалось выполнить запрос. Попробуйте ещё раз.';
 }

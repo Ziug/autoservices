@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useRef, useState} from 'react';
 import {Link, useNavigate, useParams, useSearchParams} from 'react-router-dom';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import {CalendarPlus, CheckCircle, Copy, MapPin, XCircle} from '@phosphor-icons/react';
@@ -58,15 +58,34 @@ export function AppointmentPage() {
     queryFn: () => loadAppointmentAccess(business, appointmentId, accessToken),
     enabled: Boolean(appointmentId && accessToken),
   });
+  const cancelGuard = useRef(false);
   const cancelMutation = useMutation({
     mutationFn: () => cancelAppointment(business, appointmentId, accessToken),
     onSuccess: async () => {
       setCancelOpen(false);
       setMessage('Запись отменена. Если планы изменятся, вы сможете выбрать новое время.');
       await queryClient.invalidateQueries({queryKey: ['appointment-access', business.slug, appointmentId]});
+      // The freed slot must become bookable again without a hard reload.
+      await queryClient.invalidateQueries({queryKey: ['availability', business.slug]});
     },
-    onError: (error) => setMessage(error instanceof Error ? error.message : 'Не удалось отменить запись.'),
+    onError: async (error) => {
+      setMessage(error instanceof Error ? error.message : 'Не удалось отменить запись.');
+      // Converge the UI: if the booking did cancel despite the error, the
+      // refetch hides the cancel button and shows the cancelled state.
+      await queryClient.invalidateQueries({queryKey: ['appointment-access', business.slug, appointmentId]});
+    },
+    onSettled: () => {
+      cancelGuard.current = false;
+    },
   });
+  // Double-tap guard lives at the call site (checking isPending inside
+  // mutationFn would always see `true` — the mutation has already started).
+  // A ref covers two taps within the same frame, before state flips.
+  const requestCancel = () => {
+    if (cancelGuard.current || cancelMutation.isPending) return;
+    cancelGuard.current = true;
+    cancelMutation.mutate();
+  };
 
   const subscribe = async (appointment: Appointment) => {
     const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim();
@@ -126,7 +145,7 @@ export function AppointmentPage() {
         <Link to={`/s/${business.slug}/`}>Вернуться на страницу студии</Link>
       </Card>
       <DrawerPanel open={cancelOpen} onOpenChange={setCancelOpen} title="Отменить запись?" description="Пост освободится, и его сможет занять другой клиент.">
-        <section className="contact-actions"><Button label="Оставить запись" variant="secondary" onClick={() => setCancelOpen(false)} /><Button label="Подтвердить отмену" variant="destructive" isLoading={cancelMutation.isPending} onClick={() => cancelMutation.mutate()} /></section>
+        <section className="contact-actions"><Button label="Оставить запись" variant="secondary" onClick={() => setCancelOpen(false)} /><Button label="Подтвердить отмену" variant="destructive" isLoading={cancelMutation.isPending} isDisabled={cancelMutation.isPending} onClick={requestCancel} /></section>
       </DrawerPanel>
     </section>
   );

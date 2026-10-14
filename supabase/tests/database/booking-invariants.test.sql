@@ -61,10 +61,16 @@ union all select resource_a2, tenant_a, 'lift-b', 'Lift B', 'lift' from test_fix
 union all select resource_a3, tenant_a, 'lift-c', 'Lift C', 'lift' from test_fixtures
 union all select resource_long, tenant_a, 'long-bay', 'Long bay', 'long' from test_fixtures
 union all select resource_b, tenant_b, 'lift-a', 'Other lift', 'lift' from test_fixtures;
+-- Inactive catalog rows for the cross-tenant RLS probes below (inactive rows
+-- are membership-gated, unlike the public active catalog).
+insert into public.services (tenant_id, slug, name, price_minor, duration_minutes, active)
+select tenant_b, 'hidden-service', 'Hidden service', 100, 30, false from test_fixtures;
+insert into public.resources (tenant_id, slug, name, active)
+select tenant_b, 'hidden-resource', 'Hidden resource', false from test_fixtures;
 
 select extensions.is(
-  (select count(*) from public.public_booking_slots(slug_a, 'wash', booking_day) where starts_at = test_fixtures.starts_at),
-  3::bigint,
+  (select available_count from public.public_booking_slots(slug_a, 'wash', booking_day) where starts_at = test_fixtures.starts_at),
+  3,
   'all compatible resources are initially available'
 ) from test_fixtures;
 
@@ -93,6 +99,12 @@ select extensions.throws_ok($test$
     'Test Customer One', '+70000000001', 'Car One', (select key_a1 from test_fixtures), 'wrong-token-hash'
   )
 $test$, '22023', 'IDEMPOTENCY_KEY_MISMATCH', 'a reused key cannot return access with a different token');
+select extensions.throws_ok($test$
+  select public.create_public_booking(
+    (select slug_a from test_fixtures), 'wash', (select starts_at from test_fixtures),
+    'Changed Name', '+70000000001', 'Car One', (select key_a1 from test_fixtures), 'token-hash-a1'
+  )
+$test$, '22023', 'IDEMPOTENCY_KEY_MISMATCH', 'a reused key with different details is rejected, not returned as idempotent');
 
 select extensions.is(public.create_availability_block(
   tenant_a, resource_a3, starts_at, starts_at + interval '1 hour', 'Test block'
@@ -108,6 +120,12 @@ $test$, '23P01', 'SLOT_TAKEN', 'a fully occupied slot cannot be booked again');
 select extensions.is(public.create_availability_block(
   tenant_a, resource_a1, move_starts_at, move_starts_at + interval '1 hour', 'Move conflict'
 ) is not null, true, 'the target time is blocked before a move') from test_fixtures;
+select extensions.ok(public.create_availability_block(
+  tenant_a, resource_a2, move_starts_at, move_starts_at + interval '1 hour', 'Move conflict cover'
+) is not null, 'the second post is blocked too') from test_fixtures;
+select extensions.ok(public.create_availability_block(
+  tenant_a, resource_a3, move_starts_at, move_starts_at + interval '1 hour', 'Move conflict cover'
+) is not null, 'the third post is blocked too') from test_fixtures;
 create function pg_temp.move_reports_occupancy_conflict(p_tenant_id uuid, p_appointment_id uuid, p_starts_at timestamptz)
 returns boolean language plpgsql as $$
 begin
@@ -139,7 +157,7 @@ select extensions.is((public.set_appointment_status(tenant_a, booking_a1, 'compl
 select extensions.is((select completed from public.owner_metrics_for_edge(tenant_a, now() - interval '1 day', now() + interval '90 days')), 1::bigint, 'completed work is counted separately') from test_fixtures;
 select extensions.is((select arrivals from public.owner_metrics_for_edge(tenant_a, now() - interval '1 day', now() + interval '90 days')), 3::bigint, 'confirmed and completed work is counted as arrivals') from test_fixtures;
 select extensions.is(public.cancel_appointment(tenant_a, booking_a2), true, 'cancellation releases the selected resource') from test_fixtures;
-select extensions.is((select available_count from public.public_booking_slots(slug_a, 'wash', booking_day) where starts_at = test_fixtures.starts_at), 1, 'cancelling reopens the resource while the other booking and block remain') from test_fixtures;
+select extensions.is((select available_count from public.public_booking_slots(slug_a, 'wash', booking_day) where starts_at = test_fixtures.starts_at), 2, 'cancelling reopens its resource (the completed booking already freed the first; the block still holds the third)') from test_fixtures;
 
 insert into public.date_overrides (tenant_id, local_date, is_closed, label)
 select tenant_a, booking_day + 3, true, 'Closed test day' from test_fixtures;
@@ -168,8 +186,8 @@ select extensions.is((select reserved_calls from public.llm_usage_daily where te
 insert into auth.users (id, aud, role, email, encrypted_password, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
 select owner_id, 'authenticated', 'authenticated', owner_id::text || '@pgtap.invalid', '', '{}'::jsonb, '{}'::jsonb, now(), now()
 from test_fixtures;
-insert into public.tenant_memberships (tenant_id, user_id, role)
-select tenant_a, owner_id, 'owner' from test_fixtures;
+insert into public.tenant_memberships (tenant_id, user_id, role, username)
+select tenant_a, owner_id, 'owner', 'pgtap-owner' from test_fixtures;
 grant select on test_fixtures to authenticated;
 set local role authenticated;
 select set_config('request.jwt.claim.sub', (select owner_id::text from test_fixtures), true);
@@ -177,6 +195,16 @@ select extensions.is((select count(*) from public.appointments where tenant_id =
 select extensions.is((select count(*) from public.appointments where tenant_id = (select tenant_b from test_fixtures)), 0::bigint, 'the owner cannot read another tenant appointments');
 select extensions.is((select count(*) from public.payments where tenant_id = (select tenant_a from test_fixtures)), 2::bigint, 'the owner can read their tenant payments');
 select extensions.is((select count(*) from public.payments where tenant_id = (select tenant_b from test_fixtures)), 0::bigint, 'the owner cannot read another tenant payments');
+select extensions.is((select count(*) from public.services where tenant_id = (select tenant_a from test_fixtures)), 2::bigint, 'the owner can read services in their own tenant');
+select extensions.is((select count(*) from public.services where tenant_id = (select tenant_b from test_fixtures) and active), 1::bigint, 'published services of another tenant stay visible as public catalog');
+select extensions.is((select count(*) from public.services where tenant_id = (select tenant_b from test_fixtures) and not active), 0::bigint, 'the owner cannot read inactive services of another tenant');
+select extensions.is((select count(*) from public.resources where tenant_id = (select tenant_a from test_fixtures)), 4::bigint, 'the owner can read resources in their own tenant');
+select extensions.is((select count(*) from public.resources where tenant_id = (select tenant_b from test_fixtures) and active), 1::bigint, 'published resources of another tenant stay visible as public catalog');
+select extensions.is((select count(*) from public.resources where tenant_id = (select tenant_b from test_fixtures) and not active), 0::bigint, 'the owner cannot read inactive resources of another tenant');
+select extensions.ok((select count(*) from public.resource_occupancies where tenant_id = (select tenant_a from test_fixtures)) >= 1::bigint, 'the owner can read occupancies in their own tenant');
+select extensions.is((select count(*) from public.resource_occupancies where tenant_id = (select tenant_b from test_fixtures)), 0::bigint, 'the owner cannot read another tenant occupancies');
+select extensions.is((select count(*) from public.date_overrides where tenant_id = (select tenant_a from test_fixtures)), 1::bigint, 'the owner can read overrides in their own tenant');
+select extensions.is((select count(*) from public.date_overrides where tenant_id = (select tenant_b from test_fixtures)), 0::bigint, 'the owner cannot read another tenant overrides');
 select extensions.is((select arrivals from public.owner_metrics((select tenant_a from test_fixtures), now() - interval '1 day', now() + interval '90 days')), 2::bigint, 'owner metrics require membership and return tenant-scoped totals');
 select extensions.throws_ok($test$
   select * from public.owner_metrics((select tenant_b from test_fixtures), now() - interval '1 day', now() + interval '90 days')
@@ -189,6 +217,50 @@ select extensions.ok((select leased_job is not null from test_fixtures), 'notifi
 select public.finish_notification_job(leased_job, false, 'test retry') from test_fixtures;
 select extensions.is((select state from public.notification_jobs where id = (select leased_job from test_fixtures)), 'pending'::public.notification_state, 'a failed delivery returns to pending for retry');
 select extensions.is((select attempts from public.notification_jobs where id = (select leased_job from test_fixtures)), 1, 'outbox retry attempts are tracked');
+
+-- Closing-time rule: same-day work must end by closes_at (20:00 here for the
+-- 60-minute wash with 15+15 buffers: last valid start 18:30). Multi-day
+-- services are exempt (covered above by the 1800-minute case).
+select extensions.is(
+  (select count(*) from public.public_booking_slots(slug_a, 'wash', booking_day) where starts_at = test_fixtures.starts_at + interval '9 hours'),
+  0::bigint, 'no slot starts at 19:00 when the work would overrun closing'
+) from test_fixtures;
+select extensions.is(
+  (select available_count from public.public_booking_slots(slug_a, 'wash', booking_day) where starts_at = test_fixtures.starts_at + interval '8 hours 30 minutes'),
+  3, 'the 18:30 start still fits before closing on all three posts'
+) from test_fixtures;
+select extensions.throws_ok($test$
+  select public.create_public_booking(
+    (select slug_a from test_fixtures), 'wash', (select starts_at from test_fixtures) + interval '9 hours',
+    'Late Customer', '+70000000009', 'Late Car', extensions.gen_random_uuid(), 'late-hash'
+  )
+$test$, '22023', 'OUTSIDE_OPENING_HOURS', 'a booking overrunning closing is rejected');
+update test_fixtures set booking_a2 = (public.create_public_booking(
+  slug_a, 'wash', starts_at + interval '8 hours 30 minutes', 'Evening Customer', '+70000000008', 'Evening Car', extensions.gen_random_uuid(), 'evening-hash'
+)->>'id')::uuid;
+select extensions.ok((select booking_a2 from test_fixtures) is not null, 'a booking ending before closing succeeds');
+
+-- Move reassignment: the booking below starts at 14:00 on lift-a (occupancy
+-- 13:45-15:15 with buffers); with lift-a blocked 16:00-17:00 the move to
+-- 16:00 must land on another compatible post, release the old occupancy,
+-- and keep a single live occupancy for the appointment.
+update test_fixtures set booking_a2 = (public.create_public_booking(
+  slug_a, 'wash', starts_at + interval '4 hours', 'Move Customer', '+70000000007', 'Move Car', extensions.gen_random_uuid(), 'move-hash'
+)->>'id')::uuid;
+select extensions.is((select resource_id from public.appointments where id = (select booking_a2 from test_fixtures)), resource_a1, 'the setup booking takes the first free post') from test_fixtures;
+select extensions.ok(public.create_availability_block(
+  tenant_a, resource_a1, starts_at + interval '6 hours', starts_at + interval '7 hours', 'Move target taken'
+) is not null, 'the current post is blocked at the move target') from test_fixtures;
+select extensions.is((public.move_appointment(tenant_a, booking_a2, starts_at + interval '6 hours')::jsonb)->>'status', 'confirmed', 'the move succeeds on another compatible post') from test_fixtures;
+select extensions.is((select resource_id from public.appointments where id = (select booking_a2 from test_fixtures)), resource_a2, 'the move reassigns the booking to the free post') from test_fixtures;
+select extensions.is((select starts_at from public.appointments where id = (select booking_a2 from test_fixtures)), starts_at + interval '6 hours', 'the move updates the appointment time') from test_fixtures;
+select extensions.is((select count(*) from public.resource_occupancies where appointment_id = (select booking_a2 from test_fixtures) and released_at is null), 1::bigint, 'the move leaves exactly one live occupancy') from test_fixtures;
+select extensions.is((select count(*) from public.resource_occupancies where appointment_id = (select booking_a2 from test_fixtures) and released_at is null and occupied && tstzrange(starts_at + interval '4 hours', starts_at + interval '4 hours' + interval '1 minute', '[)')), 0::bigint, 'the old time range is released by the move') from test_fixtures;
+-- A small nudge overlapping its own old window stays on the same post
+-- instead of spilling to another one.
+select extensions.is((public.move_appointment(tenant_a, booking_a2, starts_at + interval '6 hours 30 minutes')::jsonb)->>'status', 'confirmed', 'a small nudge on the same post succeeds') from test_fixtures;
+select extensions.is((select resource_id from public.appointments where id = (select booking_a2 from test_fixtures)), resource_a2, 'the nudge keeps the booking on its post') from test_fixtures;
+select extensions.is((select count(*) from public.resource_occupancies where appointment_id = (select booking_a2 from test_fixtures) and released_at is null), 1::bigint, 'the nudge keeps a single live occupancy') from test_fixtures;
 
 select * from extensions.finish();
 rollback;

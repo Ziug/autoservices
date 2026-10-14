@@ -3,7 +3,7 @@ import {useNavigate, useSearchParams} from 'react-router-dom';
 import {addDays} from 'date-fns';
 import {ru} from 'date-fns/locale';
 import {formatInTimeZone, fromZonedTime} from 'date-fns-tz';
-import {useMutation, useQuery} from '@tanstack/react-query';
+import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import {Clock, X} from '@phosphor-icons/react';
 import {BottomSheet} from '@astryxdesign/core/BottomSheet';
 import {Button} from '@astryxdesign/core/Button';
@@ -85,6 +85,10 @@ export function BookingPage() {
   const [flowDirection, setFlowDirection] = useState<1 | -1>(1);
   const [hasNavigated, setHasNavigated] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(() => createClientId());
+  // Synchronous double-submit guard. bookingMutation.isPending flips only
+  // after a re-render, so two taps within the same frame would both pass an
+  // isPending check and fire redundant requests with the same key.
+  const submitGuard = useRef(false);
   const service = business.services.find((item) => item.slug === serviceSlug) ?? business.services[0];
   const dates = useMemo(() => dateOptions(business.timezone, day), [business.timezone, day]);
   const availabilityQuery = useQuery({
@@ -109,13 +113,33 @@ export function BookingPage() {
     );
   }, [service, business.resources]);
   const selectedSlot = availabilityQuery.data?.find((slot) => slot.startsAt === startsAt);
+  const queryClient = useQueryClient();
+  const refreshAvailability = () => queryClient.invalidateQueries({queryKey: ['availability', business.slug]});
   const bookingMutation = useMutation({
     mutationFn: (contact: BookingContact) => reserveAppointment({business, service: service!, startsAt, ...contact, idempotencyKey}),
     onSuccess: ({appointment, accessToken}) => {
       rememberAccess(appointment, accessToken, business.slug);
+      // The booked slot must disappear even if the customer goes Back:
+      // drop every cached availability entry for this studio before leaving.
+      void refreshAvailability();
       navigate(`/s/${business.slug}/reservation/${encodeURIComponent(appointment.id)}?token=${encodeURIComponent(accessToken)}`);
     },
-    onError: (error) => setFormError(error instanceof Error ? error.message : 'Не удалось оформить запись. Попробуйте ещё раз.'),
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Не удалось оформить запись. Попробуйте ещё раз.';
+      if (/только что заняли/i.test(message)) {
+        // Someone took the slot: the cached day is stale, refetch it so the
+        // customer sees current availability instead of retrying blindly.
+        void refreshAvailability();
+      }
+      setFormError(
+        /idempotency key mismatch/i.test(message)
+          ? 'Данные отличаются от предыдущей попытки. Проверьте «Мою запись» — возможно, запись уже создана. Иначе вернитесь и отправьте заново.'
+          : message,
+      );
+    },
+    onSettled: () => {
+      submitGuard.current = false;
+    },
   });
 
   useEffect(() => {
@@ -195,11 +219,18 @@ export function BookingPage() {
 
   function submitBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // Double-submit guard: the in-flight request already carries this step's
+    // idempotency key, so a second tap must not fire a redundant request.
+    // A ref (not isPending) because state flips only after a re-render.
+    if (submitGuard.current || bookingMutation.isPending) return;
     setFormError('');
     if (!service) { setFormError('Выберите вариант.'); goTo('service'); return; }
     if (!startsAt || !selectedSlot?.availableCount) { setFormError('Выбранное время больше недоступно. Выберите другое.'); goTo('schedule'); return; }
     const contact = validateContact();
     if (!contact) { goTo('contact'); return; }
+    // Latch only here: every early return above never calls mutate, so
+    // onSettled would never fire to release the guard (stranded form).
+    submitGuard.current = true;
     bookingMutation.mutate(contact);
   }
 
@@ -415,7 +446,7 @@ export function BookingPage() {
                   {formError ? <p className="booking-inline-error" role="alert">{formError}</p> : null}
                   <footer className="booking-flow-footer booking-flow-footer-split">
                     <Button className="booking-flow-back" label="Назад" variant="secondary" onClick={() => goTo('contact')} />
-                    <Button className="booking-flow-primary" label="Подтвердить запись" variant="primary" size="lg" type="submit" isLoading={bookingMutation.isPending} />
+                    <Button className="booking-flow-primary" label="Подтвердить запись" variant="primary" size="lg" type="submit" isLoading={bookingMutation.isPending} isDisabled={bookingMutation.isPending} />
                   </footer>
                 </form>
               ) : null}
