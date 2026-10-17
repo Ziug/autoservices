@@ -184,9 +184,6 @@ img { display: block; max-width: 100%; }
 /* Order details: extra service lines, notes, payment history, totals.
    Token-only values; owner and admin share these classes. */
 .extra-service-form { align-items: end; }
-.extra-service-modes { display: flex; gap: var(--spacing-2); flex-wrap: wrap; }
-.mode-chip { min-height: 2.5rem; padding: var(--spacing-2) var(--spacing-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-full); background: color-mix(in srgb, var(--color-background-surface) 74%, transparent); color: var(--color-text-secondary); font-size: 0.85rem; font-weight: 600; cursor: pointer; }
-.mode-chip[aria-checked='true'] { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 14%, var(--color-background-body)); color: var(--color-text-primary); }
 .order-summary { display: grid; gap: var(--spacing-4); min-width: 0; }
 .order-section { display: grid; gap: var(--spacing-2); min-width: 0; }
 .order-line { display: flex; align-items: baseline; justify-content: space-between; gap: var(--spacing-3); min-width: 0; padding-block: var(--spacing-1); border-bottom: var(--border-width) solid var(--color-border); }
