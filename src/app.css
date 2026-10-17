@@ -193,18 +193,20 @@ img { display: block; max-width: 100%; }
 @media (min-width: 44rem) {
   .extra-service-form {
     display: grid;
-    grid-template-columns: auto minmax(12rem, 1fr) minmax(8rem, 10rem) auto;
+    grid-template-columns: minmax(14rem, 1fr) minmax(8rem, 11rem);
     grid-template-areas:
-      "modes modes modes modes"
-      "field field field action";
+      "modes   modes"
+      "field1  field2"
+      "summary action";
     align-items: end;
-    gap: var(--spacing-2) var(--spacing-3);
+    gap: var(--spacing-3);
   }
   .extra-service-form .extra-service-modes { grid-area: modes; }
-  .extra-service-form .order-total-row { grid-area: modes; }
   .extra-service-form .field { min-width: 0; }
+  .extra-service-form .field:has(select) { grid-column: 1 / -1; }
+  .extra-service-form > p { grid-area: summary; align-self: center; margin: 0; }
   .extra-service-form .form-error { grid-column: 1 / -1; }
-  .extra-service-form .astryx-button { grid-area: action; }
+  .extra-service-form .astryx-button { grid-area: action; justify-self: end; }
 }
 .order-summary { display: grid; gap: var(--spacing-4); min-width: 0; }
 .order-section { display: grid; gap: var(--spacing-2); min-width: 0; }
