@@ -7,6 +7,8 @@ import {Card} from '@astryxdesign/core/Card';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {useTenant} from '@/App';
 import {DrawerPanel} from '@/components/ui/drawer';
+import {InstallGuide} from '@/components/install-promo';
+import {isInstalled, useInstallPrompt} from '@/components/install-prompt';
 import {localDayLabel, localTimeLabel, money, parseISO} from '@/lib/format';
 import {cancelAppointment, loadAppointmentAccess} from '@/lib/tenant-api';
 import type {Appointment} from '@/domain/tenant';
@@ -52,7 +54,19 @@ export function AppointmentPage() {
   const accessToken = searchParams.get('token') ?? '';
   const [cancelOpen, setCancelOpen] = useState(false);
   const [message, setMessage] = useState('');
+  const [installOpen, setInstallOpen] = useState(false);
+  const installTriggered = useRef(false);
+  const installState = useInstallPrompt();
   const queryClient = useQueryClient();
+
+  const triggerInstallSheet = () => {
+    if (installTriggered.current || installState.installed || isInstalled()) return;
+    try { if (sessionStorage.getItem('autoservices:install:dismissed') === '1') return; } catch { /* ignore */ }
+    installTriggered.current = true;
+    // Let the just-initiated action (calendar download, clipboard, reminder)
+    // finish before the sheet opens.
+    window.setTimeout(() => setInstallOpen(true), 0);
+  };
   const appointmentQuery = useQuery({
     queryKey: ['appointment-access', business.slug, appointmentId],
     queryFn: () => loadAppointmentAccess(business, appointmentId, accessToken),
@@ -134,9 +148,9 @@ export function AppointmentPage() {
         <Text><strong>{appointment.customerName}</strong> · {appointment.vehicle}</Text>
         <Text><MapPin aria-hidden="true" /> {business.address}, {business.city}</Text>
         <section className="contact-actions">
-          <Button label="Добавить в календарь" variant="primary" icon={<CalendarPlus weight="bold" />} onClick={() => downloadCalendarEvent(business.name, appointment)} />
-          {appointment.status === 'confirmed' ? <Button label="Включить напоминание за сутки" variant="secondary" onClick={() => void subscribe(appointment)} /> : null}
-          <Button label="Скопировать ссылку доступа" variant="secondary" icon={<Copy weight="bold" />} onClick={() => { void navigator.clipboard?.writeText(window.location.href).then(() => setMessage('Ссылка доступа скопирована.')); }} />
+          <Button label="Добавить в календарь" variant="primary" icon={<CalendarPlus weight="bold" />} onClick={() => { downloadCalendarEvent(business.name, appointment); triggerInstallSheet(); }} />
+          {appointment.status === 'confirmed' ? <Button label="Включить напоминание за сутки" variant="secondary" onClick={() => { void subscribe(appointment).then(() => triggerInstallSheet()); }} /> : null}
+          <Button label="Скопировать ссылку доступа" variant="secondary" icon={<Copy weight="bold" />} onClick={() => { void navigator.clipboard?.writeText(window.location.href).then(() => { setMessage('Ссылка доступа скопирована.'); triggerInstallSheet(); }); }} />
         </section>
         {message ? <p className={message.includes('не удалось') ? 'form-error' : 'form-success'} role="status">{message}</p> : null}
         {appointment.status === 'confirmed' && canCancel ? <Button label="Отменить запись" variant="destructive" icon={<XCircle weight="bold" />} onClick={() => setCancelOpen(true)} isLoading={cancelMutation.isPending} /> : null}
@@ -147,6 +161,7 @@ export function AppointmentPage() {
       <DrawerPanel open={cancelOpen} onOpenChange={setCancelOpen} title="Отменить запись?" description="Пост освободится, и его сможет занять другой клиент.">
         <section className="contact-actions"><Button label="Оставить запись" variant="secondary" onClick={() => setCancelOpen(false)} /><Button label="Подтвердить отмену" variant="destructive" isLoading={cancelMutation.isPending} isDisabled={cancelMutation.isPending} onClick={requestCancel} /></section>
       </DrawerPanel>
+      <InstallGuide open={installOpen} onOpenChange={setInstallOpen} />
     </section>
   );
 }
