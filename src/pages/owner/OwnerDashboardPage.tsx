@@ -72,6 +72,7 @@ function ExtraServiceForm({appointment, order, business, mutation}: {
   const [error, setError] = useState('');
   // One request id per opened form: a duplicate submit inserts nothing.
   const requestId = useRef(createClientId());
+  const submitGuard = useRef(false);
   const customMinor = amountToMinor(customPrice);
   const catalogService = business.services.find((item) => item.slug === catalogSlug);
   const previewMinor = mode === 'custom' ? customMinor ?? 0 : catalogService?.priceMinor ?? 0;
@@ -85,7 +86,8 @@ function ExtraServiceForm({appointment, order, business, mutation}: {
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (mutation.isPending) return;
+    if (mutation.isPending || submitGuard.current) return;
+    submitGuard.current = true;
     setError('');
     if (mode === 'custom') {
       if (!customValid) { setError('Укажите название (2–100 символов) и цену больше нуля.'); return; }
@@ -213,10 +215,11 @@ function AppointmentRow({appointment, business, order, refresh}: {appointment: A
   const [showExtra, setShowExtra] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const summaryGuard = useRef(false);
+  const submitGuard = useRef(false);
   const mutation = useMutation({
     mutationFn: ({action, payload}: {action: string; payload: Record<string, unknown>}) => ownerAction(business, action, payload),
-    onSuccess: async () => { setError(''); await refresh(); },
-    onError: (caught) => setError(caught instanceof Error ? caught.message : 'Не удалось сохранить действие.'),
+    onSuccess: async () => { setError(''); submitGuard.current = false; await refresh(); },
+    onError: (caught) => { submitGuard.current = false; setError(caught instanceof Error ? caught.message : 'Не удалось сохранить действие.'); },
   });
   const next = statusAction(appointment.status);
   const active = !['cancelled', 'completed', 'no_show'].includes(appointment.status);

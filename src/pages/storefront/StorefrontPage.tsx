@@ -8,6 +8,7 @@ import {useTenant} from '@/App';
 import type {BusinessConfig} from '@/domain/tenant';
 import {money} from '@/lib/format';
 import {InstallAction} from '@/components/install-action';
+import {ReturningInstallBanner} from '@/components/install-promo';
 
 const dayNames = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
 const shortDayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -176,10 +177,9 @@ export function StorefrontPage() {
           </section>
         </details>
         <section className="contact-actions">
-          <Button label="Построить маршрут" variant="secondary" href={business.mapUrl} target="_blank" rel="noreferrer" icon={<MapPin weight="bold" />} />
-          <Button label="Позвонить" variant="secondary" href={telHref} icon={<Phone weight="bold" />} />
         </section>
         <InstallAction />
+        {!business.demo ? <ReturningInstallBanner /> : null}
       </section>
     </section>
   );

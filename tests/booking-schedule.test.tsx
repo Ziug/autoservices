@@ -115,7 +115,7 @@ describe('booking schedule step', () => {
     });
     render(<Page business={studio(OPEN_WEEK)} />);
     await openSchedule();
-    expect(await screen.findByText(/свободных окон нет/)).toBeTruthy();
+    expect(await screen.findByText((text) => text.includes('свободных окон нет'))).toBeTruthy();
     expect(screen.queryByRole('button', {name: /свободно/})).toBeNull();
   });
 

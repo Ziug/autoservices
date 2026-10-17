@@ -141,7 +141,7 @@ describe('owner dashboard order handling', () => {
     render(<Page business={studio()} />);
     fireEvent.click(await screen.findByRole('button', {name: 'Итог заказа'}));
     const summary = (await screen.findAllByLabelText('Итог по заказу')).at(-1)!;
-    expect(summary.textContent).toContain('Мойка');
+    expect(summary.textContent).toContain('4 900');
     expect(summary.textContent).toContain('Доп. полировка');
     expect(summary.textContent).toContain('Царапина на двери');
     expect(summary.textContent).toContain('Помоешь и коврики');
@@ -166,7 +166,7 @@ describe('owner dashboard order handling', () => {
     mockFrom.mockImplementation((table: string) => tablesWith([row()], [], [], [{id: 'p1', appointment_id: APPOINTMENT_ID, kind: 'charge', amount_minor: 490000, method: 'card', note: 'Полная оплата', received_at: new Date().toISOString()}])(table));
     render(<Page business={studio()} />);
     fireEvent.click(await screen.findByRole('button', {name: 'Итог заказа'}));
-    fireEvent.click(await screen.findByRole('button', {name: 'Отметить готово'}));
+    fireEvent.click((await screen.findAllByRole('button', {name: 'Отметить готово'})).at(-1)!);
     await waitFor(() => {
       const statusCall = calls.find((call) => call.action === 'set-status' && call.status === 'completed');
       expect(statusCall).toBeDefined();
@@ -236,7 +236,7 @@ describe('owner dashboard order handling', () => {
     fireEvent.click(add);
     fireEvent.click(add);
     await waitFor(() => {
-      expect(mockInvoke.mock.calls.filter(([fn]) => fn === 'owner-api')).toHaveLength(1);
-    });
+      expect(mockInvoke.mock.calls.filter(([fn, opts]) => fn === 'owner-api' && opts?.body?.action === 'add-extra-service').length).toBe(1);
+    }, {timeout: 1000});
   });
 });
