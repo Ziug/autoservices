@@ -140,14 +140,14 @@ describe('owner dashboard order handling', () => {
     )(table));
     render(<Page business={studio()} />);
     fireEvent.click(await screen.findByRole('button', {name: 'Итог заказа'}));
-    const summary = (await screen.findAllByLabelText('Итог по заказу')).at(-1)!;
-    expect(summary.textContent).toContain('4 900');
+    const summary = await screen.findByLabelText('Итог по заказу');
+    expect(summary.textContent).toContain('Мойка');
     expect(summary.textContent).toContain('Доп. полировка');
     expect(summary.textContent).toContain('Царапина на двери');
     expect(summary.textContent).toContain('Помоешь и коврики');
     // 4900 original + 1500 extras = 6400 total; 4000 paid -> 2400 balance.
-    expect(screen.getAllByTestId('order-total').at(-1)!.textContent).toContain('6');
-    expect(screen.getAllByTestId('order-balance').at(-1)!.textContent).toContain('2');
+    expect(screen.getByTestId('order-total').textContent).toContain('6');
+    expect(screen.getByTestId('order-balance').textContent).toContain('2');
   });
 
   it('completes an appointment through the summary dialog and preserves history', async () => {
@@ -166,7 +166,7 @@ describe('owner dashboard order handling', () => {
     mockFrom.mockImplementation((table: string) => tablesWith([row()], [], [], [{id: 'p1', appointment_id: APPOINTMENT_ID, kind: 'charge', amount_minor: 490000, method: 'card', note: 'Полная оплата', received_at: new Date().toISOString()}])(table));
     render(<Page business={studio()} />);
     fireEvent.click(await screen.findByRole('button', {name: 'Итог заказа'}));
-    fireEvent.click((await screen.findAllByRole('button', {name: 'Отметить готово'})).at(-1)!);
+    fireEvent.click(await screen.findByRole('button', {name: 'Отметить готово'}));
     await waitFor(() => {
       const statusCall = calls.find((call) => call.action === 'set-status' && call.status === 'completed');
       expect(statusCall).toBeDefined();
@@ -236,7 +236,7 @@ describe('owner dashboard order handling', () => {
     fireEvent.click(add);
     fireEvent.click(add);
     await waitFor(() => {
-      expect(mockInvoke.mock.calls.filter(([fn, opts]) => fn === 'owner-api' && opts?.body?.action === 'add-extra-service').length).toBe(1);
-    }, {timeout: 1000});
+      expect(mockInvoke.mock.calls.filter(([fn]) => fn === 'owner-api')).toHaveLength(1);
+    });
   });
 });

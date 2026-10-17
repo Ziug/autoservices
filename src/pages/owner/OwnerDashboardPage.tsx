@@ -72,7 +72,6 @@ function ExtraServiceForm({appointment, order, business, mutation}: {
   const [error, setError] = useState('');
   // One request id per opened form: a duplicate submit inserts nothing.
   const requestId = useRef(createClientId());
-  const submitGuard = useRef(false);
   const customMinor = amountToMinor(customPrice);
   const catalogService = business.services.find((item) => item.slug === catalogSlug);
   const previewMinor = mode === 'custom' ? customMinor ?? 0 : catalogService?.priceMinor ?? 0;
@@ -86,8 +85,7 @@ function ExtraServiceForm({appointment, order, business, mutation}: {
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (mutation.isPending || submitGuard.current) return;
-    submitGuard.current = true;
+    if (mutation.isPending) return;
     setError('');
     if (mode === 'custom') {
       if (!customValid) { setError('Укажите название (2–100 символов) и цену больше нуля.'); return; }
@@ -130,39 +128,6 @@ function ExtraServiceForm({appointment, order, business, mutation}: {
       {error ? <p className="form-error" role="alert">{error}</p> : null}
       <Button label="Добавить" size="sm" type="submit" variant="primary" icon={<Plus aria-hidden="true" />} isLoading={mutation.isPending} isDisabled={mutation.isPending || !canSubmit} />
     </form>
-  );
-}
-
-/** Extra service line items with per-line removal (owner corrections). */
-function ExtraServicesList({appointment, order, business, mutation}: {
-  appointment: Appointment;
-  order: OwnerOrder;
-  business: ReturnType<typeof useTenant>;
-  mutation: ReturnType<typeof useMutation<unknown, Error, {action: string; payload: Record<string, unknown>}>>;
-}) {
-  const extras = normalizeOwnerOrder(order).extras;
-  if (extras.length === 0) return <Text type="supporting" color="secondary">Дополнительных услуг нет.</Text>;
-  return (
-    <section className="order-payments">
-      {extras.map((line) => (
-        <section className="order-line" key={line.id}>
-          <section className="order-line-copy">
-            <Text>{line.name}</Text>
-            <small>{line.kind === 'custom' ? 'Своя услуга' : 'Из каталога'}</small>
-          </section>
-          <section className="order-line-actions">
-            <strong className="order-line-price">{money(line.priceMinor, business.currency, business.locale)}</strong>
-            <Button
-              label="Убрать"
-              size="sm"
-              variant="ghost"
-              isLoading={mutation.isPending}
-              onClick={() => mutation.mutate({action: 'remove-extra-service', payload: {appointmentId: appointment.id, extraServiceId: line.id}})}
-            />
-          </section>
-        </section>
-      ))}
-    </section>
   );
 }
 
@@ -215,11 +180,10 @@ function AppointmentRow({appointment, business, order, refresh}: {appointment: A
   const [showExtra, setShowExtra] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const summaryGuard = useRef(false);
-  const submitGuard = useRef(false);
   const mutation = useMutation({
     mutationFn: ({action, payload}: {action: string; payload: Record<string, unknown>}) => ownerAction(business, action, payload),
-    onSuccess: async () => { setError(''); submitGuard.current = false; await refresh(); },
-    onError: (caught) => { submitGuard.current = false; setError(caught instanceof Error ? caught.message : 'Не удалось сохранить действие.'); },
+    onSuccess: async () => { setError(''); await refresh(); },
+    onError: (caught) => setError(caught instanceof Error ? caught.message : 'Не удалось сохранить действие.'),
   });
   const next = statusAction(appointment.status);
   const active = !['cancelled', 'completed', 'no_show'].includes(appointment.status);
@@ -276,12 +240,6 @@ function AppointmentRow({appointment, business, order, refresh}: {appointment: A
         {appointment.status === 'confirmed' ? <Button label="Не приехал" size="sm" variant="secondary" onClick={() => runStatus('no_show')} isLoading={mutation.isPending} /> : null}
       </section>
       {showExtra && active ? <ExtraServiceForm appointment={appointment} order={order} business={business} mutation={mutation} /> : null}
-      {order.extras.length > 0 ? (
-        <section className="appointment-extras" aria-label="Доп. услуги записи">
-          <Text type="supporting" color="secondary">Доп. услуги</Text>
-          <ExtraServicesList appointment={appointment} order={order} business={business} mutation={mutation} />
-        </section>
-      ) : null}
       {active ? (
         <details className="appointment-tools">
           <summary>Перенос, оплата и заметки</summary>
