@@ -103,8 +103,9 @@ export function AppointmentPage() {
 
   const subscribe = async (appointment: Appointment) => {
     const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim();
-    if (!vapidKey || !('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
-      setMessage('Push здесь недоступен. Добавьте запись в календарь файлом ICS.');
+    const canUsePush = Boolean(vapidKey) && 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
+    if (!canUsePush) {
+      setMessage('Напоминания доступны после добавления студии на экран „Домой“. Добавьте сайт на главный экран, затем включите напоминание.');
       return;
     }
     if (!standaloneMode() && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
