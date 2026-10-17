@@ -29,9 +29,15 @@ function downloadCalendarEvent(businessName: string, appointment: Appointment) {
   const href = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = href;
-  anchor.download = `booking-${appointment.id}.ics`;
+  // Apple platforms (iOS/macOS Safari) can hand the ICS off to Calendar when
+  // the anchor has no `download` attribute. On other browsers, keep the
+  // download attribute so the file is saved (their only supported path).
+  const ua = navigator.userAgent;
+  const isSafariFamily = /Safari\//.test(ua) && !/Chrome|Chromium|Edg|Firefox|OPR/i.test(ua);
+  if (!isSafariFamily) anchor.download = `booking-${appointment.id}.ics`;
   anchor.click();
-  URL.revokeObjectURL(href);
+  // Revoke after a short delay so Safari has time to read the blob.
+  window.setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
 
 function base64UrlToBytes(value: string) {
