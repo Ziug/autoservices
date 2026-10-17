@@ -90,6 +90,8 @@ export function StorefrontPage() {
         </section>
       </section>
 
+      <ReturningInstallBanner />
+
       <section className="content-section" id="services" data-liquid-ignore data-reveal>
         <header className="section-heading">
           <section><p className="eyebrow">Прайс</p><Heading level={2}>Услуги и цены</Heading></section>
@@ -179,7 +181,6 @@ export function StorefrontPage() {
         <section className="contact-actions">
         </section>
         <InstallAction />
-        {!business.demo ? <ReturningInstallBanner /> : null}
       </section>
     </section>
   );

@@ -46,8 +46,8 @@ export function InstallGuide({open, onOpenChange}: {open: boolean; onOpenChange:
             </select>
           </label>
         ) : (
-          <button className="admin-link" type="button" onClick={() => setShowSelector(true)}>
-            Не ваш браузер? Выберите другой
+          <button className="admin-link" type="button" onClick={() => setShowSelector((v) => !v)}>
+            {showSelector ? 'Скрыть выбор браузера' : 'Не нашли свой браузер?'}
           </button>
         )}
         {steps.length > 0 ? (

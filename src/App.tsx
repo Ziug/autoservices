@@ -7,7 +7,6 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import type {BusinessConfig} from '@/domain/tenant';
 import {AssistantWidget} from '@/components/assistant-widget';
 import {InstallMetadata} from '@/components/install-metadata';
-import {PostBookingInstallCard} from '@/components/install-promo';
 import {RevealSections} from '@/components/reveal-sections';
 import {TenantTheme} from '@/components/tenant-theme';
 import {loadBusiness} from '@/lib/tenant-api';
@@ -141,7 +140,7 @@ function TenantShell() {
         </Suspense>
         {!isOwner ? <PublicNavigation slug={business.slug} /> : null}
         {!isOwnerLogin && !isBooking ? <AssistantWidget business={business} audience={isOwner ? 'owner' : 'client'} /> : null}
-        {!isOwner ? <PostBookingInstallCard businessName={business.name} /> : null}
+        {!isOwner ? <PublicNavigation slug={business.slug} /> : null}
         {!isOwner ? (
           <footer className="footer-row" data-liquid-ignore>
             <Text type="supporting">{business.name} · {business.city}</Text>
