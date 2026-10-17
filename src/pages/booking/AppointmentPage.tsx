@@ -17,23 +17,31 @@ function icsEscape(value: string) {
   return value.replaceAll('\\', '\\\\').replaceAll(';', '\\;').replaceAll(',', '\\,').replaceAll('\n', '\\n');
 }
 
-function downloadCalendarEvent(businessName: string, appointment: Appointment) {
+function downloadCalendarEvent(businessName: string, appointment: Appointment, business: {address?: string; city?: string}) {
   const date = (iso: string) => new Date(iso).toISOString().replaceAll('-', '').replaceAll(':', '').replace(/\.\d{3}Z$/, 'Z');
+  const location = [business.address, business.city].filter(Boolean).join(', ');
   const content = [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//AutoServices//Booking//RU', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
     'BEGIN:VEVENT', `UID:${appointment.id}@autoservices`, `DTSTAMP:${date(new Date().toISOString())}`,
     `DTSTART:${date(appointment.startsAt)}`, `DTEND:${date(appointment.endsAt)}`,
     `SUMMARY:${icsEscape(`${appointment.serviceName} — ${businessName}`)}`,
     `DESCRIPTION:${icsEscape(`${appointment.customerName} · ${appointment.vehicle}`)}`,
+    location ? `LOCATION:${icsEscape(location)}` : '',
     'END:VEVENT', 'END:VCALENDAR', '',
-  ].join('\r\n');
+  ].filter(Boolean).join('\r\n');
   const blob = new Blob([content], {type: 'text/calendar;charset=utf-8'});
   const href = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = href;
-  anchor.download = `booking-${appointment.id}.ics`;
+  // Hand off to the platform calendar where it is supported (Apple platforms
+  // open the ICS in Calendar). On other browsers the file is downloaded so the
+  // user can still import it — never force-download where hand-off works.
+  const ua = navigator.userAgent;
+  const isSafariFamily = /Safari\//.test(ua) && !/Chrome|Chromium|Edg|Firefox|OPR/i.test(ua);
+  if (!isSafariFamily) anchor.download = `booking-${appointment.id}.ics`;
   anchor.click();
-  URL.revokeObjectURL(href);
+  // Revoke after a tick so Safari has time to hand the blob to Calendar.
+  window.setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
 
 function base64UrlToBytes(value: string) {
@@ -148,7 +156,7 @@ export function AppointmentPage() {
         <Text><strong>{appointment.customerName}</strong> · {appointment.vehicle}</Text>
         <Text><MapPin aria-hidden="true" /> {business.address}, {business.city}</Text>
         <section className="contact-actions">
-          <Button label="Добавить в календарь" variant="primary" icon={<CalendarPlus weight="bold" />} onClick={() => { downloadCalendarEvent(business.name, appointment); triggerInstallSheet(); }} />
+          <Button label="Добавить в календарь" variant="primary" icon={<CalendarPlus weight="bold" />} onClick={() => { downloadCalendarEvent(business.name, appointment, business); triggerInstallSheet(); }} />
           {appointment.status === 'confirmed' ? <Button label="Включить напоминание за сутки" variant="secondary" onClick={() => { void subscribe(appointment).then(() => triggerInstallSheet()); }} /> : null}
           <Button label="Скопировать ссылку доступа" variant="secondary" icon={<Copy weight="bold" />} onClick={() => { void navigator.clipboard?.writeText(window.location.href).then(() => { setMessage('Ссылка доступа скопирована.'); triggerInstallSheet(); }); }} />
         </section>
