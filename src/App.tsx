@@ -140,6 +140,7 @@ function TenantShell() {
         </Suspense>
         {!isOwner ? <PublicNavigation slug={business.slug} /> : null}
         {!isOwnerLogin && !isBooking ? <AssistantWidget business={business} audience={isOwner ? 'owner' : 'client'} /> : null}
+        {!isOwner ? <PublicNavigation slug={business.slug} /> : null}
         {!isOwner ? (
           <footer className="footer-row" data-liquid-ignore>
             <Text type="supporting">{business.name} · {business.city}</Text>

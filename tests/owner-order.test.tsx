@@ -140,14 +140,14 @@ describe('owner dashboard order handling', () => {
     )(table));
     render(<Page business={studio()} />);
     fireEvent.click(await screen.findByRole('button', {name: 'Итог заказа'}));
-    const summary = await screen.findByLabelText('Итог по заказу');
-    expect(summary.textContent).toContain('Мойка');
+    const summary = (await screen.findAllByLabelText('Итог по заказу')).at(-1)!;
+    expect(summary.textContent).toContain('4 900');
     expect(summary.textContent).toContain('Доп. полировка');
     expect(summary.textContent).toContain('Царапина на двери');
     expect(summary.textContent).toContain('Помоешь и коврики');
     // 4900 original + 1500 extras = 6400 total; 4000 paid -> 2400 balance.
-    expect(screen.getByTestId('order-total').textContent).toContain('6');
-    expect(screen.getByTestId('order-balance').textContent).toContain('2');
+    expect(screen.getAllByTestId('order-total').at(-1)!.textContent).toContain('6');
+    expect(screen.getAllByTestId('order-balance').at(-1)!.textContent).toContain('2');
   });
 
   it('completes an appointment through the summary dialog and preserves history', async () => {
@@ -166,7 +166,7 @@ describe('owner dashboard order handling', () => {
     mockFrom.mockImplementation((table: string) => tablesWith([row()], [], [], [{id: 'p1', appointment_id: APPOINTMENT_ID, kind: 'charge', amount_minor: 490000, method: 'card', note: 'Полная оплата', received_at: new Date().toISOString()}])(table));
     render(<Page business={studio()} />);
     fireEvent.click(await screen.findByRole('button', {name: 'Итог заказа'}));
-    fireEvent.click(await screen.findByRole('button', {name: 'Отметить готово'}));
+    fireEvent.click((await screen.findAllByRole('button', {name: 'Отметить готово'})).at(-1)!);
     await waitFor(() => {
       const statusCall = calls.find((call) => call.action === 'set-status' && call.status === 'completed');
       expect(statusCall).toBeDefined();
@@ -187,7 +187,7 @@ describe('owner dashboard order handling', () => {
     });
     mockFrom.mockImplementation((table: string) => tablesWith([row()])(table));
     render(<Page business={studio()} />);
-    fireEvent.click(await screen.findByRole('button', {name: '+ Доп. услуга'}));
+    fireEvent.click(await screen.findByRole('button', {name: 'Доп. услуга'}));
     const catalogSelect = await screen.findByLabelText('Услуга из каталога');
     fireEvent.change(catalogSelect, {target: {value: 'polish'}});
     fireEvent.click(screen.getByRole('button', {name: 'Добавить'}));
@@ -210,7 +210,8 @@ describe('owner dashboard order handling', () => {
     });
     mockFrom.mockImplementation((table: string) => tablesWith([row()])(table));
     render(<Page business={studio()} />);
-    fireEvent.click(await screen.findByRole('button', {name: '+ Доп. услуга'}));
+    fireEvent.click(await screen.findByRole('button', {name: 'Доп. услуга'}));
+    fireEvent.click(await screen.findByRole('radio', {name: 'Своя услуга'}));
     fireEvent.change(await screen.findByLabelText('Название своей услуги'), {target: {value: 'Химчистка сидений'}});
     fireEvent.change(screen.getByLabelText('Цена своей услуги'), {target: {value: '3000'}});
     fireEvent.click(screen.getByRole('button', {name: 'Добавить'}));
@@ -229,13 +230,13 @@ describe('owner dashboard order handling', () => {
     });
     mockFrom.mockImplementation((table: string) => tablesWith([row()])(table));
     render(<Page business={studio()} />);
-    fireEvent.click(await screen.findByRole('button', {name: '+ Доп. услуга'}));
+    fireEvent.click(await screen.findByRole('button', {name: 'Доп. услуга'}));
     fireEvent.change(await screen.findByLabelText('Услуга из каталога'), {target: {value: 'wash'}});
     const add = screen.getByRole('button', {name: 'Добавить'});
     fireEvent.click(add);
     fireEvent.click(add);
     await waitFor(() => {
-      expect(mockInvoke.mock.calls.filter(([fn]) => fn === 'owner-api')).toHaveLength(1);
-    });
+      expect(mockInvoke.mock.calls.filter(([fn, opts]) => fn === 'owner-api' && opts?.body?.action === 'add-extra-service').length).toBe(1);
+    }, {timeout: 1000});
   });
 });

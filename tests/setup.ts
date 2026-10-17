@@ -23,6 +23,15 @@ if (typeof window !== 'undefined' && typeof Element !== 'undefined' && typeof El
   Element.prototype.animate = (() => ({cancel: () => {}, finished: Promise.resolve()})) as unknown as typeof Element.prototype.animate;
 }
 
+// jsdom has no <dialog> modal API; Astryx Dialog/AlertDialog call showModal().
+if (typeof window !== 'undefined' && typeof HTMLDialogElement !== 'undefined') {
+  const proto = HTMLDialogElement.prototype as unknown as {showModal?: () => void; close?: () => void};
+  if (typeof proto.showModal !== 'function') {
+    proto.showModal = function showModal(this: HTMLElement) { this.setAttribute('open', ''); };
+    proto.close = function close(this: HTMLElement) { this.removeAttribute('open'); };
+  }
+}
+
 afterEach(() => {
   localStorage.clear();
 });
