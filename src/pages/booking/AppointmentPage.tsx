@@ -163,11 +163,11 @@ export function AppointmentPage() {
       <DrawerPanel open={accessOpen} onOpenChange={setAccessOpen} title="Номер записи и код доступа" description="Сохраните эти данные, чтобы открыть запись на другом устройстве.">
         <section className="field-grid">
           <label className="field">
-            <small>Номер записи (appointment ID)</small>
+            <small>Номер записи</small>
             <input readOnly value={appointmentId} />
           </label>
           <label className="field">
-            <small>Код доступа (token)</small>
+            <small>Код доступа</small>
             <input readOnly value={accessToken} />
           </label>
           <p className="assistant-note" role="status">
