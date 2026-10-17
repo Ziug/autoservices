@@ -190,24 +190,6 @@ img { display: block; max-width: 100%; }
 
 /* Desktop: keep the whole "+ Доп. услуга" form on one tidy row instead of
    wrapping across two lines. Mobile keeps the stacked default above. */
-@media (min-width: 44rem) {
-  .extra-service-form {
-    display: grid;
-    grid-template-columns: minmax(14rem, 1fr) minmax(8rem, 11rem);
-    grid-template-areas:
-      "modes   modes"
-      "field1  field2"
-      "summary action";
-    align-items: end;
-    gap: var(--spacing-3);
-  }
-  .extra-service-form .extra-service-modes { grid-area: modes; }
-  .extra-service-form .field { min-width: 0; }
-  .extra-service-form .field:has(select) { grid-column: 1 / -1; }
-  .extra-service-form > p { grid-area: summary; align-self: center; margin: 0; }
-  .extra-service-form .form-error { grid-column: 1 / -1; }
-  .extra-service-form .astryx-button { grid-area: action; justify-self: end; }
-}
 .order-summary { display: grid; gap: var(--spacing-4); min-width: 0; }
 .order-section { display: grid; gap: var(--spacing-2); min-width: 0; }
 .order-line { display: flex; align-items: baseline; justify-content: space-between; gap: var(--spacing-3); min-width: 0; padding-block: var(--spacing-1); border-bottom: var(--border-width) solid var(--color-border); }
