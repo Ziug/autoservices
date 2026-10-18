@@ -8,7 +8,7 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {useTenant} from '@/App';
 import {DrawerPanel} from '@/components/ui/drawer';
 import {localDayLabel, localTimeLabel, money, parseISO} from '@/lib/format';
-import {cancelAppointment, loadAppointmentAccess} from '@/lib/tenant-api';
+import {cancelAppointment, loadAppointmentAccess, storePushSubscription} from '@/lib/tenant-api';
 import type {Appointment} from '@/domain/tenant';
 
 function icsEscape(value: string) {
@@ -54,6 +54,10 @@ export function AppointmentPage() {
   const [accessOpen, setAccessOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [message, setMessage] = useState('');
+  const [messageError, setMessageError] = useState(false);
+  const [pushPending, setPushPending] = useState(false);
+  const pushGuard = useRef(false);
+  const notify = (text: string, isError = false) => { setMessage(text); setMessageError(isError); };
   const queryClient = useQueryClient();
   const appointmentQuery = useQuery({
     queryKey: ['appointment-access', business.slug, appointmentId],
@@ -65,13 +69,13 @@ export function AppointmentPage() {
     mutationFn: () => cancelAppointment(business, appointmentId, accessToken),
     onSuccess: async () => {
       setCancelOpen(false);
-      setMessage('Запись отменена. Если планы изменятся, вы сможете выбрать новое время.');
+      notify('Запись отменена. Если планы изменятся, вы сможете выбрать новое время.');
       await queryClient.invalidateQueries({queryKey: ['appointment-access', business.slug, appointmentId]});
       // The freed slot must become bookable again without a hard reload.
       await queryClient.invalidateQueries({queryKey: ['availability', business.slug]});
     },
     onError: async (error) => {
-      setMessage(error instanceof Error ? error.message : 'Не удалось отменить запись.');
+      notify(error instanceof Error ? error.message : 'Не удалось отменить запись.', true);
       // Converge the UI: if the booking did cancel despite the error, the
       // refetch hides the cancel button and shows the cancelled state.
       await queryClient.invalidateQueries({queryKey: ['appointment-access', business.slug, appointmentId]});
@@ -90,30 +94,46 @@ export function AppointmentPage() {
   };
 
   const subscribe = async (appointment: Appointment) => {
+    if (pushGuard.current) return;
     const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim();
     const canUsePush = Boolean(vapidKey) && 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
     if (!canUsePush) {
-      setMessage('Напоминания доступны после добавления студии на экран „Домой“. Добавьте сайт на главный экран, затем включите напоминание.');
+      notify('Напоминания доступны после добавления студии на экран „Домой“. Добавьте сайт на главный экран, затем включите напоминание.', true);
       return;
     }
     if (!standaloneMode() && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-      setMessage('На iPhone push-напоминания доступны после добавления студии на главный экран. Пока добавьте запись в календарь.');
+      notify('На iPhone push-напоминания доступны после добавления студии на главный экран. Пока добавьте запись в календарь.', true);
       return;
     }
-    const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
-    if (permission !== 'granted') { setMessage('Разрешение на уведомления не выдано. Вы можете добавить запись в календарь.'); return; }
+    // Re-check the 24h window at click time: the page may have been open since
+    // the booking was >24h away, but time may have passed. Avoid a pointless
+    // request that the server would reject with 409.
+    if (new Date(appointment.startsAt).getTime() <= Date.now() + 24 * 60 * 60 * 1000) {
+      notify('До записи осталось меньше суток. Добавьте её в календарь.', true);
+      return;
+    }
+    // One request per press: repeated taps used to burn through the server's
+    // rate limit (6 per 10 minutes) and only surfaced a cryptic non-2xx error.
+    pushGuard.current = true;
+    setPushPending(true);
     try {
+      const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+      if (permission !== 'granted') { notify('Разрешение на уведомления не выдано. Вы можете добавить запись в календарь.', true); return; }
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: base64UrlToBytes(vapidKey)});
-      const {supabase} = await import('@/lib/supabase');
-      if (!supabase) throw new Error('Supabase is not configured.');
-      const {error} = await supabase.functions.invoke('push-subscribe', {
-        body: {slug: business.slug, appointmentId, accessToken, subscription: subscription.toJSON()},
-      });
-      if (error) throw error;
-      setMessage('Напоминание за сутки включено на этом устройстве.');
+      await storePushSubscription(business, appointmentId, accessToken, subscription.toJSON());
+      notify('Напоминание за сутки включено на этом устройстве.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Не удалось включить push. Сохраните запись в календарь.');
+      // Handle known error cases with clear messages; fall back to generic text.
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('До записи осталось меньше суток') || message.includes('non-2xx')) {
+        notify('До записи осталось меньше суток. Добавьте её в календарь.', true);
+      } else {
+        notify(message || 'Не удалось включить push. Сохраните запись в календарь.', true);
+      }
+    } finally {
+      pushGuard.current = false;
+      setPushPending(false);
     }
   };
 
@@ -124,7 +144,11 @@ export function AppointmentPage() {
   if (appointmentQuery.isLoading) return <section className="page-content"><p className="loading-state" role="status">Загружаем подтверждение…</p></section>;
   if (appointmentQuery.isError || !appointment) return <section className="not-found" role="alert"><Heading level={1}>Не удалось открыть запись</Heading><Text color="secondary">{appointmentQuery.error instanceof Error ? appointmentQuery.error.message : 'Проверьте ссылку доступа.'}</Text><Link to={`/s/${business.slug}/my-booking`}>Мои записи</Link></section>;
 
-  const canCancel = appointment.status === 'confirmed' && Date.now() < new Date(appointment.startsAt).getTime() - business.cancellationWindowHours * 60 * 60 * 1000;
+  const startsAtMs = new Date(appointment.startsAt).getTime();
+  const canCancel = appointment.status === 'confirmed' && Date.now() < startsAtMs - business.cancellationWindowHours * 60 * 60 * 1000;
+  // Mirrors the push-subscribe Edge Function rule: a day-before reminder can
+  // only be stored while the booking is more than 24 hours away.
+  const reminderAvailable = Date.now() < startsAtMs - 24 * 60 * 60 * 1000;
   return (
     <section className="page-content appointment-page">
       <section className="booking-heading" data-reveal>
@@ -138,7 +162,7 @@ export function AppointmentPage() {
         <Text><MapPin aria-hidden="true" /> {business.address}, {business.city}</Text>
         <section className="contact-actions">
           <Button label="Добавить в календарь" variant="primary" icon={<CalendarPlus weight="bold" />} onClick={() => downloadCalendarEvent(business.name, appointment)} />
-          {appointment.status === 'confirmed' ? <Button label="Включить напоминание за сутки" variant="secondary" onClick={() => void subscribe(appointment)} /> : null}
+          {appointment.status === 'confirmed' && reminderAvailable ? <Button label="Включить напоминание за сутки" variant="secondary" isLoading={pushPending} isDisabled={pushPending} onClick={() => void subscribe(appointment)} /> : null}
           <Button
             label="Скопировать ссылку доступа"
             variant="secondary"
@@ -151,7 +175,8 @@ export function AppointmentPage() {
             }}
           />
         </section>
-        {message ? <p className={message.includes('не удалось') ? 'form-error' : 'form-success'} role="status">{message}</p> : null}
+        {message ? <p className={messageError ? 'form-error' : 'form-success'} role="status">{message}</p> : null}
+        {appointment.status === 'confirmed' && !reminderAvailable && startsAtMs > Date.now() ? <p className="assistant-note">До записи осталось меньше суток. Добавьте её в календарь.</p> : null}
         {appointment.status === 'confirmed' && canCancel ? <Button label="Отменить запись" variant="destructive" icon={<XCircle weight="bold" />} onClick={() => setCancelOpen(true)} isLoading={cancelMutation.isPending} /> : null}
         {appointment.status === 'confirmed' && !canCancel ? <p className="assistant-note">До начала меньше {business.cancellationWindowHours} ч. Позвоните в студию, чтобы изменить запись.</p> : null}
         {appointment.status === 'cancelled' ? <p className="form-success"><CheckCircle weight="fill" /> Эта запись отменена.</p> : null}

@@ -21,12 +21,13 @@ Deno.serve(async (request) => {
     const admin = adminClient();
     const tenant = await tenantBySlug(admin, input.slug);
     if (!tenant || tenant.is_demo) return json(request, {error: 'Push-напоминания недоступны для демо-студий.'}, 400);
-    if (!await checkRateLimit(admin, request, 'push-subscribe', tenant.id, 6, 600)) return json(request, {error: 'Слишком много попыток подключения уведомлений.'}, 429);
+    if (!await checkRateLimit(admin, request, 'push-subscribe', tenant.id, 15, 600)) return json(request, {error: 'Слишком много попыток подключения уведомлений. Подождите несколько минут и попробуйте снова.'}, 429);
     const tokenHash = await sha256(input.accessToken);
     const {data: appointment, error: lookupError} = await admin.from('appointments').select('id,status,starts_at')
       .eq('tenant_id', tenant.id).eq('id', input.appointmentId).eq('access_token_hash', tokenHash).maybeSingle();
     if (lookupError) throw lookupError;
-    if (!appointment || appointment.status !== 'confirmed') return json(request, {error: 'Подтверждённая запись не найдена.'}, 404);
+    if (!appointment) return json(request, {error: 'Ссылка на запись недействительна.'}, 404);
+    if (appointment.status !== 'confirmed') return json(request, {error: 'Включить напоминание можно только для подтверждённой записи.'}, 404);
     if (new Date(appointment.starts_at).getTime() <= Date.now() + 24 * 60 * 60 * 1000) return json(request, {error: 'До записи осталось меньше суток. Добавьте её в календарь.'}, 409);
     const expiresAt = input.subscription.expirationTime ? new Date(input.subscription.expirationTime).toISOString() : null;
     const {data, error} = await admin.rpc('save_push_subscription', {

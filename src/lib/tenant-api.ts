@@ -153,6 +153,19 @@ export async function cancelAppointment(business: BusinessConfig, appointmentId:
 }
 
 /**
+ * Stores the browser push subscription for one appointment. The Edge Function
+ * enforces its own rules (demo tenants, bookings under 24h away, rate limits);
+ * its Russian message reaches the caller through functionError, so the page
+ * shows the real reason instead of the generic "non-2xx status code".
+ */
+export async function storePushSubscription(business: BusinessConfig, appointmentId: string, accessToken: string, subscription: PushSubscriptionJSON): Promise<void> {
+  const {error} = await requireSupabase().functions.invoke('push-subscribe', {
+    body: {slug: business.slug, appointmentId, accessToken, subscription},
+  });
+  if (error) await functionError('', 'Не удалось включить напоминание. Попробуйте ещё раз позже.', error);
+}
+
+/**
  * Internal auth domain for username-only owner logins. The browser NEVER sees
  * a service-role key: login is a plain signInWithPassword against the
  * synthetic address <username>@owners.local created (email-confirmed) by the
