@@ -97,6 +97,16 @@ async function readFunctionErrorBody(error: unknown): Promise<string | null> {
       const body = (await context.clone().json()) as {error?: unknown};
       if (body && typeof body.error === 'string' && body.error) return body.error;
     }
+    // Some SDK versions expose the body directly on the error object.
+    const directBody = (error as {body?: unknown; bodyText?: unknown}).body ?? (error as {bodyText?: unknown}).bodyText;
+    if (typeof directBody === 'string' && directBody) {
+      try {
+        const parsed = JSON.parse(directBody) as {error?: unknown};
+        if (parsed && typeof parsed.error === 'string' && parsed.error) return parsed.error;
+      } catch {
+        // Not JSON — fall through.
+      }
+    }
   } catch {
     // Fall through to the generic message.
   }

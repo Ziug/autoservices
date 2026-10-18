@@ -126,7 +126,9 @@ export function AppointmentPage() {
     } catch (error) {
       // Handle known error cases with clear messages; fall back to generic text.
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes('До записи осталось меньше суток') || message.includes('non-2xx')) {
+      if (message.includes('No connection to push daemon')) {
+        notify('Push-напоминания пока недоступны на этом устройстве. Добавьте запись в календарь.', true);
+      } else if (message.includes('До записи осталось меньше суток') || message.includes('non-2xx')) {
         notify('До записи осталось меньше суток. Добавьте её в календарь.', true);
       } else {
         notify(message || 'Не удалось включить push. Сохраните запись в календарь.', true);
