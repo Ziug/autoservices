@@ -353,8 +353,18 @@ export async function sendAssistantMessage(input: {
       bookingDraft: input.bookingDraft,
       idempotencyKey: input.idempotencyKey,
     },
+    // The Edge Function enforces its own 12s budget and answers with a
+    // fallback instead of hanging; this client-side cap is a safety net for
+    // the case where the whole request never comes back.
+    timeout: 20_000,
   });
-  if (error) throw new Error(error.message || 'Помощник сейчас недоступен.');
+  if (error) {
+    const message = error instanceof Error ? error.message : '';
+    if (/timeout|timed out|abort/i.test(message)) {
+      throw new Error('Помощник не успел ответить. Попробуйте ещё раз или оформите запись через расписание.');
+    }
+    throw new Error(error.message || 'Помощник сейчас недоступен.');
+  }
   const payload = data as {answer?: unknown; draft?: unknown; booking?: unknown} | null;
   const answer = typeof payload?.answer === 'string' ? payload.answer : '';
   const draft = payload?.draft && typeof payload.draft === 'object' ? payload.draft as AssistantBookingDraft : undefined;

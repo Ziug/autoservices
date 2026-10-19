@@ -7,6 +7,7 @@ import {
   type BookingDraft,
 } from './prompt.ts';
 import {localTimeToUtc, looksLikeBookingRequest, normalizeDraft, utcToLocalTime} from './booking.ts';
+import {isTimeoutError, llmTimeout, remainingMs, startDeadline} from './budget.ts';
 
 function assertEqual(actual: unknown, expected: unknown, label: string) {
   if (actual !== expected) throw new Error(`${label}: expected ${String(expected)}, got ${String(actual)}`);
@@ -168,4 +169,37 @@ Deno.test('booking messages use the dedicated prompt and JSON contract', () => {
 Deno.test('booking messages include the safety reminder every 5 messages', () => {
   assertEqual(buildBookingMessages('{}', 4).length, 2, 'no reminder at 4');
   assertEqual(buildBookingMessages('{}', 5).length, 3, 'reminder at 5');
+});
+
+// ─── Time budget ──────────────────────────────────────────────────────────
+
+Deno.test('the LLM timeout never exceeds the remaining wall-clock budget', () => {
+  const fresh = startDeadline();
+  const timeout = llmTimeout(fresh);
+  assertTrue(timeout > 0, 'a fresh budget allows a call');
+  assertTrue(timeout <= 6_000, 'capped at the per-call maximum');
+
+  // Nearly exhausted budget: no call may be started.
+  assertEqual(llmTimeout({expiresAt: Date.now() + 500}), 0, 'no call when exhausted');
+  assertEqual(llmTimeout({expiresAt: Date.now() - 1_000}), 0, 'no call when past the deadline');
+});
+
+Deno.test('the LLM timeout shrinks as the budget is consumed', () => {
+  const plenty = llmTimeout({expiresAt: Date.now() + 12_000});
+  const tight = llmTimeout({expiresAt: Date.now() + 3_000});
+  assertTrue(tight < plenty, 'a tighter budget yields a shorter timeout');
+  assertTrue(tight > 0, 'still allows a call');
+});
+
+Deno.test('the request budget fits the free-plan wall clock', () => {
+  const deadline = startDeadline();
+  const left = remainingMs(deadline);
+  assertTrue(left <= 12_000, 'budget is at most 12s');
+  assertTrue(left > 11_000, 'budget starts nearly full');
+});
+
+Deno.test('timeout errors are recognised as slow-model signals', () => {
+  assertTrue(isTimeoutError(new Error('Request timed out.')), 'sdk timeout message');
+  assertTrue(isTimeoutError(new Error('APIConnectionTimeoutError')), 'connection timeout');
+  assertEqual(isTimeoutError(new Error('401 Unauthorized')), false, 'auth error is not a timeout');
 });

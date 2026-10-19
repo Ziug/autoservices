@@ -4,6 +4,7 @@ import {adminClient, checkRateLimit, errorMessage, forbiddenOrigin, json, prefli
 import {canUseOwnerAssistant, routeClientQuestion, routeOwnerQuestion} from './router.ts';
 import {buildBookingMessages, buildLlmMessages, mergeBookingDraft, missingBookingFields, parseBookingIntent, type BookingDraft, type StudioScope} from './prompt.ts';
 import {createBooking, localTimeToUtc, looksLikeBookingRequest, normalizeDraft, utcToLocalTime} from './booking.ts';
+import {llmTimeout, remainingMs, startDeadline, type Deadline} from './budget.ts';
 
 const inputSchema = z.object({
   slug: z.string().regex(/^[a-z0-9-]+$/),
@@ -222,7 +223,7 @@ async function recordUsage(admin: ReturnType<typeof adminClient>, completion: {u
   if (error) throw error;
 }
 
-async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet, message: string, tenantId: string, day: string, fallback: string, messageCount: number, studio: StudioScope) {
+async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet, message: string, tenantId: string, day: string, fallback: string, messageCount: number, studio: StudioScope, deadline: Deadline) {
   const apiKey = Deno.env.get('LLM_API_KEY');
   const model = Deno.env.get('LLM_MODEL');
   if (!apiKey || !model) {
@@ -248,10 +249,17 @@ async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet
   if (factsJson.length > 12_000) return fallback;
   if (!await reserveBudget(admin, tenantId, day)) return `${fallback}\n\nЛимит помощника на сегодня достигнут.`;
 
+  const attemptTimeout = llmTimeout(deadline);
+  if (!attemptTimeout) {
+    console.error('[assistant] no time budget left for the LLM call');
+    return fallback;
+  }
   try {
     const baseURL = Deno.env.get('LLM_BASE_URL');
-    const client = new OpenAI({apiKey, ...(baseURL ? {baseURL} : {}), maxRetries: 0, timeout: 6_000});
-    // Manual retry with longer timeout — free-tier OpenRouter can be slow
+    const client = new OpenAI({apiKey, ...(baseURL ? {baseURL} : {}), maxRetries: 0, timeout: attemptTimeout});
+    // Manual retry with longer timeout — free-tier OpenRouter can be slow.
+    // A retry is only started when the remaining budget can still fit a full
+    // attempt, otherwise the request would hit the platform wall clock.
     let completion: Awaited<ReturnType<typeof client.chat.completions.create>>;
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
@@ -259,6 +267,11 @@ async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet
         break;
       } catch (retryError) {
         if (attempt === 2) throw retryError;
+        const retryBudget = remainingMs(deadline);
+        if (retryBudget <= attemptTimeout + 800) {
+          console.error('[assistant] no budget left for a retry, giving up');
+          throw retryError;
+        }
         console.error(`[assistant] attempt ${attempt} failed, retrying...`);
       }
     }
@@ -269,7 +282,11 @@ async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet
     // must never be surfaced as an answer.
     const answer = (choice?.content ?? '').trim();
     if (!answer) {
-      console.error('[assistant] empty content from model, using deterministic fallback');
+      console.error('[assistant] empty content from model, using deterministic fallback', {
+        model: completion!.model,
+        finishReason: completion!.choices[0]?.finish_reason,
+        reasoningLength: (choice as {reasoning?: string} | undefined)?.reasoning?.length ?? 0,
+      });
       return fallback;
     }
     return answer;
@@ -288,6 +305,7 @@ async function handleBooking(
   admin: ReturnType<typeof adminClient>,
   studio: Record<string, any>,
   input: {message: string; messageCount: number; draft: unknown; idempotencyKey?: string},
+  deadline: Deadline,
 ): Promise<{answer: string; draft: BookingDraft; booking?: {appointmentId: string; accessToken: string; startsAt: string; endsAt: string; serviceName: string; priceMinor: number}}> {
   const previousDraft = normalizeDraft(input.draft);
   const {data: services, error: servicesError} = await admin.from('services')
@@ -307,7 +325,7 @@ async function handleBooking(
     message: input.message,
   });
 
-  const intent = await bookingIntent(admin, payload, studio.id, today, input.messageCount);
+  const intent = await bookingIntent(admin, payload, studio.id, today, input.messageCount, deadline);
   if (!intent) {
     return {
       answer: 'Сейчас не получается оформить запись через чат. Позвоните в студию или оформите запись через расписание.',
@@ -332,11 +350,11 @@ async function handleBooking(
   if (!service) {
     return {answer: 'Не нашёл такую услугу. Уточните, какая услуга нужна.', draft: {...draft, serviceSlug: null}};
   }
-  const slot = await resolveSlot(admin, studio, draft);
+  const {slot, dayHasSlots} = await resolveSlot(admin, studio, draft);
   if (!slot) {
-    // A missing slot means either the day is fully booked or the requested
-    // time does not exist in the schedule — the two need different wording.
-    const dayHasSlots = await dayHasAnySlot(admin, studio, draft);
+    // resolveSlot already knows whether the day has any free window: a
+    // missing slot with free windows means the requested time is wrong,
+    // otherwise the day itself is full. No second round-trip is needed.
     return {
       answer: dayHasSlots
         ? 'На это время у студии нет свободного окна. Назовите другое время или выберите «любое время».'
@@ -374,24 +392,45 @@ async function handleBooking(
 }
 
 /** Runs the booking-intent model call and parses its JSON reply. */
-async function bookingIntent(admin: ReturnType<typeof adminClient>, payload: string, tenantId: string, day: string, messageCount: number) {
+async function bookingIntent(admin: ReturnType<typeof adminClient>, payload: string, tenantId: string, day: string, messageCount: number, deadline: Deadline) {
   const apiKey = Deno.env.get('LLM_API_KEY');
   const model = Deno.env.get('LLM_MODEL');
   if (!apiKey || !model) return null;
   if (!await reserveBudget(admin, tenantId, day)) return null;
+  const attemptTimeout = llmTimeout(deadline);
+  if (!attemptTimeout) {
+    console.error('[assistant] no time budget left for the booking intent call');
+    return null;
+  }
   try {
     const baseURL = Deno.env.get('LLM_BASE_URL');
-    const client = new OpenAI({apiKey, ...(baseURL ? {baseURL} : {}), maxRetries: 0, timeout: 6_000});
+    const client = new OpenAI({apiKey, ...(baseURL ? {baseURL} : {}), maxRetries: 0, timeout: attemptTimeout});
     const completion = await client.chat.completions.create({
       model,
       temperature: 0,
-      max_tokens: 400,
+      // Reasoning models spend the token budget on thinking before emitting
+      // the JSON answer — a small cap truncates the reply to an empty string.
+      max_tokens: 800,
       messages: buildBookingMessages(payload, messageCount),
     });
     await recordUsage(admin, completion, tenantId, day);
-    const content = (completion.choices[0]?.message?.content ?? '').trim();
+    const message = completion.choices[0]?.message;
+    const content = (message?.content ?? '').trim();
     if (!content) {
-      console.error('[assistant] booking intent: empty content');
+      const reasoning = (message as {reasoning?: string} | undefined)?.reasoning?.trim() ?? '';
+      console.error('[assistant] booking intent: empty content', {
+        model: completion.model,
+        finishReason: completion.choices[0]?.finish_reason,
+        reasoningLength: reasoning.length,
+        reasoningHead: reasoning.slice(0, 200),
+      });
+      // Some reasoning models emit the final answer inside the reasoning
+      // channel. Extract the JSON object from there — the raw reasoning is
+      // never shown to the customer.
+      if (reasoning) {
+        const recovered = parseBookingIntent(reasoning);
+        if (recovered) return recovered;
+      }
       return null;
     }
     return parseBookingIntent(content);
@@ -404,32 +443,24 @@ async function bookingIntent(admin: ReturnType<typeof adminClient>, payload: str
 /**
  * Finds the concrete slot to book. A specific time must exist in the studio
  * schedule; "any time" resolves to the first slot with free capacity.
+ *
+ * Returns the slot and whether the day has any free window at all — both come
+ * from the same query, so a failed match needs no second round-trip.
  */
-async function resolveSlot(admin: ReturnType<typeof adminClient>, studio: Record<string, any>, draft: BookingDraft): Promise<Date | null> {
-  if (!draft.day) return null;
+async function resolveSlot(admin: ReturnType<typeof adminClient>, studio: Record<string, any>, draft: BookingDraft): Promise<{slot: Date | null; dayHasSlots: boolean}> {
+  if (!draft.day) return {slot: null, dayHasSlots: false};
   const {data: slots, error} = await admin.rpc('public_booking_slots', {
     p_slug: studio.slug, p_service_slug: draft.serviceSlug, p_local_day: draft.day,
   });
   if (error) throw error;
   const available = (slots ?? []).filter((slot: {available_count: number}) => slot.available_count > 0);
-  if (!available.length) return null;
+  if (!available.length) return {slot: null, dayHasSlots: false};
   if (draft.time) {
     const wanted = normalizeTime(draft.time);
     const match = available.find((slot: {starts_at: string}) => utcToLocalTime(slot.starts_at, studio.timezone) === wanted);
-    if (!match) return null;
-    return new Date(match.starts_at);
+    return {slot: match ? new Date(match.starts_at) : null, dayHasSlots: true};
   }
-  return new Date(available[0].starts_at);
-}
-
-/** True when the requested day has any free slot, regardless of the time. */
-async function dayHasAnySlot(admin: ReturnType<typeof adminClient>, studio: Record<string, any>, draft: BookingDraft): Promise<boolean> {
-  if (!draft.day) return false;
-  const {data: slots, error} = await admin.rpc('public_booking_slots', {
-    p_slug: studio.slug, p_service_slug: draft.serviceSlug, p_local_day: draft.day,
-  });
-  if (error) throw error;
-  return (slots ?? []).some((slot: {available_count: number}) => slot.available_count > 0);
+  return {slot: new Date(available[0].starts_at), dayHasSlots: true};
 }
 
 /** Normalizes "19:30", "19.30", "1930" to a zero-padded HH:MM string. */
@@ -468,6 +499,9 @@ Deno.serve(async (request) => {
   if (forbiddenOrigin(request)) return json(request, {error: 'Origin is not allowed.'}, 403);
   if (request.method !== 'POST') return json(request, {error: 'Method not allowed.'}, 405);
   try {
+    // The whole request shares one wall-clock budget: the free plan kills the
+    // function after ~15s, so every downstream step must know what is left.
+    const deadline = startDeadline();
     const input = inputSchema.parse(await request.json());
     const admin = adminClient();
     const tenant = await tenantBySlug(admin, input.slug);
@@ -497,7 +531,7 @@ Deno.serve(async (request) => {
         messageCount: input.messageCount ?? 0,
         draft: input.bookingDraft,
         idempotencyKey: input.idempotencyKey,
-      });
+      }, deadline);
       return json(request, {answer: booking.answer, draft: booking.draft, booking: booking.booking ?? null});
     }
     const facts = input.audience === 'client'
@@ -507,7 +541,7 @@ Deno.serve(async (request) => {
     const answer = await modelAnswer(admin, facts, input.message, studio.id, localDay(new Date(), studio.timezone), fallback, input.messageCount ?? 0, {
       id: studio.id, slug: studio.slug, name: studio.name, city: studio.city,
       address: studio.address, phone: studio.phone, timezone: studio.timezone, currency: studio.currency,
-    });
+    }, deadline);
     return json(request, {answer});
   } catch (error) {
     return json(request, {error: errorMessage(error)}, 400);
