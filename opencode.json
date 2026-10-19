@@ -17,16 +17,16 @@
     }
   },
 "provider": {
-    "RadoxAI": {
+    "BeatAPI": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Radox AI",
+      "name": "BeatApi",
       "options": {
-        "baseURL": "https://radoxai.com/v1",
-        "apiKey": "cc_SywoZWFBFtXGNHRcQfGJzzP9PeMuKjKePB04SHGHksJdWS3g"
+        "baseURL": "https://api.beatapi.io/v1",
+        "apiKey": "sk-MXTMSnbr95tAjtqb81gkIUwVJIgciBdYexV8gE7NWacuXi6Z"
       },
       "models": {
-        "claude-opus-5.5": {
-          "name": "claude-opus-5.5"
+        "gpt-6.1-sol": {
+          "name": "gpt-6.1-sol"
         }
       }
     }

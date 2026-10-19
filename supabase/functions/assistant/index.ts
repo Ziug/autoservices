@@ -2,7 +2,7 @@ import OpenAI from 'npm:openai@7.32.0';
 import {z} from 'npm:zod@4.6.6';
 import {adminClient, checkRateLimit, errorMessage, forbiddenOrigin, json, preflight, requireMembership, tenantBySlug, userFromRequest} from '../_shared/http.ts';
 import {canUseOwnerAssistant, routeClientQuestion, routeOwnerQuestion} from './router.ts';
-import {buildLlmMessages} from './prompt.ts';
+import {buildLlmMessages, type StudioScope} from './prompt.ts';
 
 const inputSchema = z.object({
   slug: z.string().regex(/^[a-z0-9-]+$/),
@@ -168,11 +168,29 @@ function deterministicAnswer(facts: FactSet, currency: string) {
   return 'Уточните, пожалуйста: вас интересуют услуги и цены, свободное время или адрес?';
 }
 
-async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet, message: string, tenantId: string, day: string, fallback: string, messageCount: number) {
+async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet, message: string, tenantId: string, day: string, fallback: string, messageCount: number, studio: StudioScope) {
   const apiKey = Deno.env.get('LLM_API_KEY');
   const model = Deno.env.get('LLM_MODEL');
-  if (!apiKey || !model) return fallback;
-  const factsJson = JSON.stringify({question: message, verifiedStudioFacts: facts});
+  if (!apiKey || !model) {
+    console.error('[assistant] LLM secrets missing:', !apiKey ? 'LLM_API_KEY' : '', !model ? 'LLM_MODEL' : '');
+    return fallback;
+  }
+  // The studio scope travels with every request so the model can never answer
+  // about a tenant other than the one the request was scoped to.
+  const factsJson = JSON.stringify({
+    studio: {
+      id: studio.id,
+      slug: studio.slug,
+      name: studio.name,
+      city: studio.city,
+      address: studio.address,
+      phone: studio.phone,
+      timezone: studio.timezone,
+      currency: studio.currency,
+    },
+    question: message,
+    verifiedStudioFacts: facts,
+  });
   if (factsJson.length > 12_000) return fallback;
   const positiveInteger = (name: string, fallbackValue: number, hardMaximum: number) => {
     const value = Number(Deno.env.get(name) ?? fallbackValue);
@@ -201,14 +219,19 @@ async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet
 
   try {
     const baseURL = Deno.env.get('LLM_BASE_URL');
-    const client = new OpenAI({apiKey, ...(baseURL ? {baseURL} : {}), maxRetries: 1, timeout: 12_000});
-    const completion = await client.chat.completions.create({
-      model,
-      temperature: 0,
-      max_tokens: 350,
-      messages: buildLlmMessages(factsJson, message, messageCount),
-    });
-    const usage = completion.usage;
+    const client = new OpenAI({apiKey, ...(baseURL ? {baseURL} : {}), maxRetries: 0, timeout: 6_000});
+    // Manual retry with longer timeout — free-tier OpenRouter can be slow
+    let completion: Awaited<ReturnType<typeof client.chat.completions.create>>;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        completion = await client.chat.completions.create({model, temperature: 0, max_tokens: 350, messages: buildLlmMessages(factsJson, message, messageCount)});
+        break;
+      } catch (retryError) {
+        if (attempt === 2) throw retryError;
+        console.error(`[assistant] attempt ${attempt} failed, retrying...`);
+      }
+    }
+    const usage = completion!.usage;
     if (usage) {
       const costMicros = Math.ceil(usage.prompt_tokens * inputRate / 1_000) + Math.ceil(usage.completion_tokens * outputRate / 1_000);
       const {error: usageError} = await admin.rpc('record_llm_usage', {
@@ -217,14 +240,25 @@ async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet
       });
       if (usageError) throw usageError;
     }
-    const answer = completion.choices[0]?.message?.content?.trim();
+    const choice = completion!.choices[0]?.message;
+    // OpenRouter reasoning models can return an empty `content` and put the
+    // answer in `reasoning` instead — read both before falling back.
+    const answer = (choice?.content ?? (choice as {reasoning?: string} | undefined)?.reasoning ?? '').trim();
     return answer || fallback;
-  } catch {
+  } catch (error) {
+    console.error('[assistant] LLM call failed:', error instanceof Error ? error.message : String(error));
     return fallback;
   }
 }
 
+console.log('[assistant] module loaded, secrets check:', {
+  hasApiKey: Boolean(Deno.env.get('LLM_API_KEY')),
+  hasBaseURL: Boolean(Deno.env.get('LLM_BASE_URL')),
+  hasModel: Boolean(Deno.env.get('LLM_MODEL')),
+});
+
 Deno.serve(async (request) => {
+  console.log('[assistant] request received:', request.method, request.url);
   if (request.method === 'OPTIONS') return preflight(request);
   if (forbiddenOrigin(request)) return json(request, {error: 'Origin is not allowed.'}, 403);
   if (request.method !== 'POST') return json(request, {error: 'Method not allowed.'}, 405);
@@ -250,7 +284,10 @@ Deno.serve(async (request) => {
       ? await clientFacts(admin, studio, input.message, input.date)
       : await ownerFacts(admin, studio, input.message, input.date);
     const fallback = deterministicAnswer(facts, studio.currency);
-    const answer = await modelAnswer(admin, facts, input.message, studio.id, localDay(new Date(), studio.timezone), fallback, input.messageCount ?? 0);
+    const answer = await modelAnswer(admin, facts, input.message, studio.id, localDay(new Date(), studio.timezone), fallback, input.messageCount ?? 0, {
+      id: studio.id, slug: studio.slug, name: studio.name, city: studio.city,
+      address: studio.address, phone: studio.phone, timezone: studio.timezone, currency: studio.currency,
+    });
     return json(request, {answer});
   } catch (error) {
     return json(request, {error: errorMessage(error)}, 400);

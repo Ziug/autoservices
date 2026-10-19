@@ -73,6 +73,11 @@ function SettingsForm({business}: {business: BusinessConfig}) {
       if (data.get(`hours-open-${weekday}`) !== 'on') return null;
       return {weekday, opensAt: String(data.get(`hours-start-${weekday}`)), closesAt: String(data.get(`hours-end-${weekday}`))};
     }).filter((hours): hours is {weekday: number; opensAt: string; closesAt: string} => Boolean(hours));
+    const assistantPrompts = String(data.get('assistantPrompts') ?? '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 8);
     save.mutate({
       name: data.get('name'), tagline: data.get('tagline'), description: data.get('description'), city: data.get('city'),
       address: data.get('address'), phone: data.get('phone'), mapUrl: data.get('mapUrl'), timezone: data.get('timezone'),
@@ -80,6 +85,7 @@ function SettingsForm({business}: {business: BusinessConfig}) {
       heroImage: data.get('heroImage'), logoImage: data.get('logoImage'),
       bookingStepMinutes: Number(data.get('bookingStepMinutes')), cancellationWindowHours: Number(data.get('cancellationWindowHours')),
       openingHours,
+      ...(assistantPrompts.length ? {assistantPrompts} : {}),
     });
   };
   const upload = async (file: File, fieldName: 'heroImage' | 'logoImage') => {
@@ -142,6 +148,12 @@ function SettingsForm({business}: {business: BusinessConfig}) {
             {field('timezone', 'Часовой пояс IANA', business.timezone)}
             {field('bookingStepMinutes', 'Шаг расписания, минут', String(business.bookingStepMinutes), 'number')}
             {field('cancellationWindowHours', 'Отмена не позднее, часов', String(business.cancellationWindowHours), 'number')}
+          </section>
+        </details>
+        <details className="set-group two-column-span" open data-collapse-mobile>
+          <summary>Подсказки помощника</summary>
+          <section className="field-grid two-column">
+            <label className="field two-column-span"><small>Подсказки (по одной на строку)</small><textarea defaultValue={business.assistantPrompts.join('\n')} name="assistantPrompts" rows={4} /></label>
           </section>
         </details>
         <section className="field-grid two-column-span">
