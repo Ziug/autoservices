@@ -3,7 +3,6 @@ import {render, screen, fireEvent, cleanup, waitFor, act} from '@testing-library
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {MemoryRouter, Outlet, Route, Routes} from 'react-router-dom';
 import {businessSchema, type BusinessConfig} from '@/domain/tenant';
-import type {TenantOutlet} from '@/App';
 
 const mockInvoke = vi.hoisted(() => vi.fn());
 
@@ -142,7 +141,7 @@ describe('assistant booking reaches the customer cabinet', () => {
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={['/s/yo/my-booking']}>
           <Routes>
-            <Route path="/s/:slug" element={<Outlet context={{business} satisfies TenantOutlet} />}>
+            <Route path="/s/:slug" element={<Outlet context={{business}} />}>
               <Route path="my-booking" element={<MyBookingPage />} />
             </Route>
           </Routes>
@@ -162,7 +161,7 @@ describe('assistant booking reaches the customer cabinet', () => {
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={['/s/yo/my-booking']}>
           <Routes>
-            <Route path="/s/:slug" element={<Outlet context={{business} satisfies TenantOutlet} />}>
+            <Route path="/s/:slug" element={<Outlet context={{business}} />}>
               <Route path="my-booking" element={<MyBookingPage />} />
             </Route>
           </Routes>
