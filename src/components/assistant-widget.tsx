@@ -13,10 +13,11 @@ export function AssistantWidget({business, audience, inline = false}: {business:
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
+  const userMessageCount = messages.filter((m) => m.role === 'user').length + 1;
   const mutation = useMutation({
-    mutationFn: (message: string) => sendAssistantMessage({business, audience, message}),
+    mutationFn: (message: string) => sendAssistantMessage({business, audience, message, messageCount: userMessageCount}),
     onSuccess: (answer) => setMessages((current) => [...current, {id: createClientId(), role: 'assistant', text: answer}]),
-    onError: () => setMessages((current) => [...current, {id: createClientId(), role: 'assistant', text: 'Помощник временно недоступен. Запись по-прежнему можно оформить через расписание.'}]),
+    onError: () => setMessages((current) => [...current, {id: createClientId(), role: 'assistant', text: 'Помощник временно недоступн. Запись по-прежнему можно оформить через расписание.'}]),
   });
 
   const submit = (message: string) => {

@@ -16,7 +16,7 @@
     "test:e2e": "playwright test",
     "test:db": "pnpm dlx supabase@latest test db",
     "test:concurrency": "node scripts/integration-concurrency.mjs",
-    "test:assistant-router": "deno test supabase/functions/assistant/router_test.ts",
+    "test:assistant-router": "deno test supabase/functions/assistant/router_test.ts supabase/functions/assistant/safety_test.ts",
     "tenant:new": "node scripts/tenants.mjs new",
     "tenant:validate": "node scripts/tenants.mjs validate",
     "tenant:publish": "node scripts/tenants.mjs publish",

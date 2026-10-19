@@ -315,10 +315,10 @@ export async function ownerAction(business: BusinessConfig, action: string, payl
   return data;
 }
 
-export async function sendAssistantMessage(input: {business: BusinessConfig; audience: 'client' | 'owner'; message: string; date?: string}) {
+export async function sendAssistantMessage(input: {business: BusinessConfig; audience: 'client' | 'owner'; message: string; date?: string; messageCount?: number}) {
   if (!hasSupabaseConfig) throw new Error('Помощник сейчас недоступен. Для работы помощника нужен Supabase.');
   const {data, error} = await requireSupabase().functions.invoke('assistant', {
-    body: {slug: input.business.slug, audience: input.audience, message: input.message, date: input.date},
+    body: {slug: input.business.slug, audience: input.audience, message: input.message, date: input.date, messageCount: input.messageCount ?? 0},
   });
   if (error) throw new Error(error.message || 'Помощник сейчас недоступен.');
   return data?.answer as string;

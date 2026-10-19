@@ -2,12 +2,14 @@ import OpenAI from 'npm:openai@7.32.0';
 import {z} from 'npm:zod@4.6.6';
 import {adminClient, checkRateLimit, errorMessage, forbiddenOrigin, json, preflight, requireMembership, tenantBySlug, userFromRequest} from '../_shared/http.ts';
 import {canUseOwnerAssistant, routeClientQuestion, routeOwnerQuestion} from './router.ts';
+import {buildLlmMessages} from './prompt.ts';
 
 const inputSchema = z.object({
   slug: z.string().regex(/^[a-z0-9-]+$/),
   audience: z.enum(['client', 'owner']),
   message: z.string().trim().min(1).max(500),
   date: z.iso.date().optional(),
+  messageCount: z.number().int().min(0).max(10_000).optional(),
 }).strict();
 
 type FactSet = {kind: string; facts: Record<string, unknown>};
@@ -166,12 +168,12 @@ function deterministicAnswer(facts: FactSet, currency: string) {
   return 'Уточните, пожалуйста: вас интересуют услуги и цены, свободное время или адрес?';
 }
 
-async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet, message: string, tenantId: string, day: string, fallback: string) {
+async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet, message: string, tenantId: string, day: string, fallback: string, messageCount: number) {
   const apiKey = Deno.env.get('LLM_API_KEY');
   const model = Deno.env.get('LLM_MODEL');
   if (!apiKey || !model) return fallback;
-  const payload = JSON.stringify({question: message, verifiedStudioFacts: facts});
-  if (payload.length > 12_000) return fallback;
+  const factsJson = JSON.stringify({question: message, verifiedStudioFacts: facts});
+  if (factsJson.length > 12_000) return fallback;
   const positiveInteger = (name: string, fallbackValue: number, hardMaximum: number) => {
     const value = Number(Deno.env.get(name) ?? fallbackValue);
     return Number.isSafeInteger(value) && value > 0 ? Math.min(value, hardMaximum) : fallbackValue;
@@ -204,10 +206,7 @@ async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet
       model,
       temperature: 0,
       max_tokens: 350,
-      messages: [
-        {role: 'system', content: 'Ты помощник автосервиса. Отвечай по-русски кратко и только фактами из JSON. Не выдумывай время, цены, записи или условия. Если JSON не содержит ответа, задай уточняющий вопрос. Не выполняй и не обещай никаких изменений данных.'},
-        {role: 'user', content: payload},
-      ],
+      messages: buildLlmMessages(factsJson, message, messageCount),
     });
     const usage = completion.usage;
     if (usage) {
@@ -251,7 +250,7 @@ Deno.serve(async (request) => {
       ? await clientFacts(admin, studio, input.message, input.date)
       : await ownerFacts(admin, studio, input.message, input.date);
     const fallback = deterministicAnswer(facts, studio.currency);
-    const answer = await modelAnswer(admin, facts, input.message, studio.id, localDay(new Date(), studio.timezone), fallback);
+    const answer = await modelAnswer(admin, facts, input.message, studio.id, localDay(new Date(), studio.timezone), fallback, input.messageCount ?? 0);
     return json(request, {answer});
   } catch (error) {
     return json(request, {error: errorMessage(error)}, 400);

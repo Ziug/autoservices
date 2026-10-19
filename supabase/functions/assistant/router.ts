@@ -7,6 +7,8 @@ export function canUseOwnerAssistant(role: string | null | undefined) {
 
 export function routeClientQuestion(message: string): ClientQuestionRoute {
   const text = message.toLocaleLowerCase('ru-RU');
+  // Destructive intent always routes to clarify — never to a fact-gathering tool.
+  if (/удал|отмен|перенести|убрать|снять/.test(text)) return 'clarify';
   if (/адрес|где|найти|маршрут|как добрат|карта/.test(text)) return 'location';
   if (/цен|стоим|сколько|прайс|price/.test(text)) return 'prices';
   if (/окн|свобод|ближай|когда|запис|время|available/.test(text)) return 'availability';
