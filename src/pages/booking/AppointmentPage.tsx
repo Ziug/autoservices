@@ -8,6 +8,7 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {useTenant} from '@/App';
 import {DrawerPanel} from '@/components/ui/drawer';
 import {localDayLabel, localTimeLabel, money, parseISO} from '@/lib/format';
+import {readSavedAccess} from '@/lib/booking-access';
 import {cancelAppointment, loadAppointmentAccess, storePushSubscription} from '@/lib/tenant-api';
 import type {Appointment} from '@/domain/tenant';
 
@@ -210,9 +211,7 @@ export function MyBookingPage() {
   const business = useTenant();
   const [appointmentId, setAppointmentId] = useState('');
   const [accessToken, setAccessToken] = useState('');
-  const saved = (() => {
-    try { return JSON.parse(localStorage.getItem(`autoservices:access:${business.slug}`) ?? '[]') as Array<{appointmentId: string; accessToken: string; startsAt: string}>; } catch { return []; }
-  })();
+  const saved = readSavedAccess(business.slug);
   const selected = saved[0];
   return (
     <section className="page-content my-booking-page">

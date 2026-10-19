@@ -57,6 +57,19 @@ Deno.test('system prompt contains core safety sections', () => {
   assertContains(systemContent, 'ГРАНИЦЫ ВОЗМОЖНОСТЕЙ', 'system prompt has boundaries');
 });
 
+Deno.test('system prompt denies non-existent appointment tools', () => {
+  const systemContent = buildLlmMessages('{"test":true}', 'Q1', 1)[0].content;
+  assertContains(systemContent, 'createAppointment', 'prompt names the hallucinated tools');
+  assertContains(systemContent, 'НЕТ инструментов для создания, отмены, переноса или удаления записей', 'prompt denies appointment mutation tools');
+  assertContains(systemContent, 'ТВОИ ВОЗМОЖНОСТИ', 'prompt has tool inventory section');
+});
+
+Deno.test('system prompt binds the assistant to a single studio', () => {
+  const systemContent = buildLlmMessages('{"test":true}', 'Q1', 1)[0].content;
+  assertContains(systemContent, 'ИЗОЛЯЦИЯ СТУДИИ', 'prompt has studio isolation section');
+  assertContains(systemContent, 'единственная студия, к которой ты имеешь доступ', 'prompt restricts to one studio');
+});
+
 // ─── Router: ambiguous/unsafe requests ─────────────────────────────────────
 
 Deno.test('ambiguous booking requests route to clarify (no destructive action)', () => {

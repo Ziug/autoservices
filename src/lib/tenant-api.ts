@@ -315,13 +315,51 @@ export async function ownerAction(business: BusinessConfig, action: string, payl
   return data;
 }
 
-export async function sendAssistantMessage(input: {business: BusinessConfig; audience: 'client' | 'owner'; message: string; date?: string; messageCount?: number}) {
+export type AssistantBookingDraft = {
+  serviceSlug: string | null;
+  day: string | null;
+  time: string | null;
+  customerName: string;
+  customerPhone: string;
+  vehicle: string;
+};
+
+export type AssistantBookingResult = {
+  appointmentId: string;
+  accessToken: string;
+  startsAt: string;
+  endsAt: string;
+  serviceName: string;
+  priceMinor: number;
+};
+
+export async function sendAssistantMessage(input: {
+  business: BusinessConfig;
+  audience: 'client' | 'owner';
+  message: string;
+  date?: string;
+  messageCount?: number;
+  bookingDraft?: AssistantBookingDraft;
+  idempotencyKey?: string;
+}): Promise<{answer: string; draft?: AssistantBookingDraft; booking?: AssistantBookingResult | null}> {
   if (!hasSupabaseConfig) throw new Error('Помощник сейчас недоступен. Для работы помощника нужен Supabase.');
   const {data, error} = await requireSupabase().functions.invoke('assistant', {
-    body: {slug: input.business.slug, audience: input.audience, message: input.message, date: input.date, messageCount: input.messageCount ?? 0},
+    body: {
+      slug: input.business.slug,
+      audience: input.audience,
+      message: input.message,
+      date: input.date,
+      messageCount: input.messageCount ?? 0,
+      bookingDraft: input.bookingDraft,
+      idempotencyKey: input.idempotencyKey,
+    },
   });
   if (error) throw new Error(error.message || 'Помощник сейчас недоступен.');
-  return data?.answer as string;
+  const payload = data as {answer?: unknown; draft?: unknown; booking?: unknown} | null;
+  const answer = typeof payload?.answer === 'string' ? payload.answer : '';
+  const draft = payload?.draft && typeof payload.draft === 'object' ? payload.draft as AssistantBookingDraft : undefined;
+  const booking = payload?.booking && typeof payload.booking === 'object' ? payload.booking as AssistantBookingResult : null;
+  return {answer, draft, booking};
 }
 
 export async function updateTenantProfile(business: BusinessConfig, updates: Partial<BusinessConfig>) {

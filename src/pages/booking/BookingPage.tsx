@@ -17,9 +17,9 @@ import type {Appointment, Service} from '@/domain/tenant';
 import {useTenant} from '@/App';
 import {money, localDateKey, localTimeLabel, parseISO} from '@/lib/format';
 import {createClientId} from '@/lib/id';
+import {rememberAccess as storeAccess} from '@/lib/booking-access';
 import {getDefaultBookingDate, loadAvailability, reserveAppointment} from '@/lib/tenant-api';
 
-type SavedAccess = {appointmentId: string; accessToken: string; startsAt: string; businessSlug: string};
 type FlowStep = 'service' | 'schedule' | 'contact' | 'review';
 type ContactField = keyof BookingContact;
 type ContactErrors = Partial<Record<ContactField, string>>;
@@ -60,16 +60,7 @@ function themeDurationMs(fallbackMs: number) {
   return Number.isFinite(parsed) ? parsed : fallbackMs;
 }
 
-function rememberAccess(appointment: Appointment, accessToken: string, businessSlug: string) {
-  const key = `autoservices:access:${businessSlug}`;
-  let saved: SavedAccess[] = [];
-  try { saved = JSON.parse(localStorage.getItem(key) ?? '[]') as SavedAccess[]; } catch { saved = []; }
-  const next = [{appointmentId: appointment.id, accessToken, startsAt: appointment.startsAt, businessSlug}, ...saved.filter((entry) => entry.appointmentId !== appointment.id)].slice(0, 10);
-  localStorage.setItem(key, JSON.stringify(next));
-}
-
-export function BookingPage() {
-  const business = useTenant();
+export function BookingPage() {  const business = useTenant();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialService = searchParams.get('service') ?? business.services[0]?.slug ?? '';
@@ -118,7 +109,7 @@ export function BookingPage() {
   const bookingMutation = useMutation({
     mutationFn: (contact: BookingContact) => reserveAppointment({business, service: service!, startsAt, ...contact, idempotencyKey}),
     onSuccess: ({appointment, accessToken}) => {
-      rememberAccess(appointment, accessToken, business.slug);
+      storeAccess({appointmentId: appointment.id, accessToken, startsAt: appointment.startsAt, businessSlug: business.slug});
       // The booked slot must disappear even if the customer goes Back:
       // drop every cached availability entry for this studio before leaving.
       void refreshAvailability();
