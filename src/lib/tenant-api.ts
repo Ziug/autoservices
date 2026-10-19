@@ -353,10 +353,11 @@ export async function sendAssistantMessage(input: {
       bookingDraft: input.bookingDraft,
       idempotencyKey: input.idempotencyKey,
     },
-    // The Edge Function enforces its own 12s budget and answers with a
-    // fallback instead of hanging; this client-side cap is a safety net for
-    // the case where the whole request never comes back.
-    timeout: 20_000,
+    // The Edge Function keeps its own generous wall-clock budget and answers
+    // with a fallback instead of hanging. This client-side cap is a safety
+    // net for the case where the whole request never comes back — it must
+    // stay above the server budget so the server's own fallback wins first.
+    timeout: 135_000,
   });
   if (error) {
     const message = error instanceof Error ? error.message : '';

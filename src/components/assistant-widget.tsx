@@ -5,11 +5,15 @@ import {ChatCircleDots, PaperPlaneRight} from '@phosphor-icons/react';
 import {Button} from '@astryxdesign/core/Button';
 import type {BusinessConfig} from '@/domain/tenant';
 import {createClientId} from '@/lib/id';
+import {localDayLabel, localTimeLabel} from '@/lib/format';
 import {rememberAccess} from '@/lib/booking-access';
 import {sendAssistantMessage, type AssistantBookingDraft} from '@/lib/tenant-api';
 import {DrawerPanel} from '@/components/ui/drawer';
 
 type Message = {id: string; role: 'user' | 'assistant'; text: string};
+
+/** A booking created during this conversation, with its access link. */
+type CreatedBooking = {appointmentId: string; accessToken: string; startsAt: string; serviceName: string};
 
 const EMPTY_DRAFT: AssistantBookingDraft = {
   serviceSlug: null,
@@ -30,6 +34,7 @@ export function AssistantWidget({business, audience, inline = false}: {business:
   // Stable per draft: the same booking intent retried resolves to the same
   // appointment instead of creating a second one.
   const [idempotencyKey, setIdempotencyKey] = useState(() => createClientId());
+  const [created, setCreated] = useState<CreatedBooking | null>(null);
   const userMessageCount = messages.filter((m) => m.role === 'user').length + 1;
   const mutation = useMutation({
     mutationFn: (message: string) => sendAssistantMessage({
@@ -50,6 +55,12 @@ export function AssistantWidget({business, audience, inline = false}: {business:
           accessToken: booking.accessToken,
           startsAt: booking.startsAt,
           businessSlug: business.slug,
+        });
+        setCreated({
+          appointmentId: booking.appointmentId,
+          accessToken: booking.accessToken,
+          startsAt: booking.startsAt,
+          serviceName: booking.serviceName,
         });
         setDraft(EMPTY_DRAFT);
         setIdempotencyKey(createClientId());
@@ -102,8 +113,15 @@ export function AssistantWidget({business, audience, inline = false}: {business:
             <input aria-label="Сообщение помощнику" autoComplete="off" maxLength={500} onChange={(event) => setValue(event.currentTarget.value)} placeholder="Напишите вопрос" value={value} />
             <Button label="Отправить" isIconOnly icon={<PaperPlaneRight weight="fill" />} type="submit" isDisabled={!value.trim() || mutation.isPending} isLoading={mutation.isPending} />
           </form>
+          {created ? (
+            <section className="assistant-booking-card" aria-live="polite">
+              <strong>Запись создана</strong>
+              <p>{created.serviceName} · {localDayLabel(created.startsAt, business.timezone)} · {localTimeLabel(created.startsAt, business.timezone)}</p>
+              <Link to={`/s/${business.slug}/reservation/${encodeURIComponent(created.appointmentId)}?token=${encodeURIComponent(created.accessToken)}`}>Открыть запись</Link>
+              <Link to={`/s/${business.slug}/my-booking`}>Мои записи</Link>
+            </section>
+          ) : null}
           <p className="assistant-note">Помощник отвечает по данным этой студии. Запись, оформленная в чате, появится в разделе «Моя запись».</p>
-          <Link to={`/s/${business.slug}/my-booking`}>Мои записи</Link>
         </section>
       </DrawerPanel>
     </>

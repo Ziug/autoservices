@@ -324,6 +324,8 @@ img { display: block; max-width: 100%; }
 .assistant-form { display: flex; gap: var(--spacing-2); align-items: end; }
 .assistant-form input { flex: 1; min-width: 0; }
 .assistant-note { margin: 0; color: var(--color-text-secondary); font-size: 0.74rem; }
+.assistant-booking-card { display: grid; gap: var(--spacing-2); justify-items: start; padding: var(--spacing-3); border: var(--border-width) solid var(--color-border-emphasized); border-radius: var(--radius-container); background: var(--color-background-card); }
+.assistant-booking-card p { margin: 0; color: var(--color-text-secondary); font-size: 0.86rem; }
 
 .drawer-backdrop { position: fixed; z-index: 80; inset: 0; background: color-mix(in srgb, var(--color-background-body) 65%, transparent); opacity: 0; transition: opacity var(--duration-medium); }
 .drawer-backdrop[data-open] { opacity: 1; backdrop-filter: blur(3px); }

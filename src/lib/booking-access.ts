@@ -32,6 +32,14 @@ export function readSavedAccess(businessSlug: string): SavedAccess[] {
 }
 
 /**
+ * Fired after the stored access pairs change. The assistant widget and the
+ * schedule page write bookings from outside React, so pages that display the
+ * saved list have to be told to re-read it — localStorage writes do not
+ * trigger a re-render on their own.
+ */
+const ACCESS_CHANGED_EVENT = 'autoservices:access-changed';
+
+/**
  * Stores the access pair for a booking, newest first, without duplicates.
  * Used by both the schedule flow and the assistant so a booking created by
  * the assistant lands in the same cabinet as a manually created one.
@@ -46,4 +54,27 @@ export function rememberAccess(input: {appointmentId: string; accessToken: strin
     // Storage may be unavailable (private mode, quota) — the access link
     // still works, the cabinet shortcut is just not persisted.
   }
+  window.dispatchEvent(new CustomEvent(ACCESS_CHANGED_EVENT, {detail: {businessSlug: input.businessSlug}}));
+}
+
+/**
+ * Subscribes to access-list changes for one studio. Returns the unsubscribe
+ * function. Listeners are notified for their own studio and for events
+ * without a studio filter.
+ */
+export function subscribeToAccessChanges(businessSlug: string, onChange: () => void): () => void {
+  const handler = (event: Event) => {
+    const detail = (event as CustomEvent<{businessSlug?: string}>).detail;
+    if (!detail?.businessSlug || detail.businessSlug === businessSlug) onChange();
+  };
+  window.addEventListener(ACCESS_CHANGED_EVENT, handler);
+  // A booking made in another tab of the same browser.
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === accessStorageKey(businessSlug)) onChange();
+  };
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(ACCESS_CHANGED_EVENT, handler);
+    window.removeEventListener('storage', onStorage);
+  };
 }

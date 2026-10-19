@@ -257,9 +257,8 @@ async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet
   try {
     const baseURL = Deno.env.get('LLM_BASE_URL');
     const client = new OpenAI({apiKey, ...(baseURL ? {baseURL} : {}), maxRetries: 0, timeout: attemptTimeout});
-    // Manual retry with longer timeout — free-tier OpenRouter can be slow.
-    // A retry is only started when the remaining budget can still fit a full
-    // attempt, otherwise the request would hit the platform wall clock.
+    // Manual retry: free-tier OpenRouter models intermittently stall. A retry
+    // only starts when the remaining budget can still fit a full attempt.
     let completion: Awaited<ReturnType<typeof client.chat.completions.create>>;
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
@@ -268,7 +267,7 @@ async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet
       } catch (retryError) {
         if (attempt === 2) throw retryError;
         const retryBudget = remainingMs(deadline);
-        if (retryBudget <= attemptTimeout + 800) {
+        if (retryBudget <= attemptTimeout + 1_500) {
           console.error('[assistant] no budget left for a retry, giving up');
           throw retryError;
         }
