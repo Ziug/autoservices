@@ -28,12 +28,17 @@ export function hasActiveBookingDraft(draft: BookingDraft): boolean {
 }
 
 /**
- * Generic words that describe a service rather than name it. They must not
- * become match stems, otherwise "Полный детейлинг" and "Полировка кузова"
- * would collide on the stem "пол".
+ * Generic words that describe a service rather than name it. They are
+ * ignored on both sides: "Полировка кузова" and "Мойка кузова" must not
+ * collide on the word "кузова", and a request for "полный" must not match
+ * "Полировка".
  */
 const SERVICE_STOP_WORDS = new Set([
-  'полн', 'полный', 'полная', 'кузов', 'салон', 'услуга', 'комплекс', 'авто', 'автомобил',
+  'полный', 'полная', 'полное', 'полных',
+  'кузов', 'кузова', 'кузове',
+  'салон', 'салона', 'салоне',
+  'услуга', 'услуги', 'комплекс', 'комплекса',
+  'авто', 'автомобиль', 'автомобиля',
 ]);
 
 /**
@@ -53,25 +58,37 @@ function normalize(value: string): string {
   return value.toLocaleLowerCase('ru-RU').replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/gi, ' ').trim();
 }
 
-/** 3-character stem so "чистка" and "чистить" share the same root. */
+/**
+ * 4-character stem so "чистка"/"чистку"/"чистить" share a root while
+ * "полный" ("полн") stays distinct from "полировка" ("поли").
+ */
 function stem(word: string): string {
-  return word.slice(0, 3);
+  return word.slice(0, 4);
+}
+
+/** True when the word only describes a service instead of naming it. */
+function isStopWord(word: string): boolean {
+  return SERVICE_STOP_WORDS.has(word);
 }
 
 /**
  * Match stems for one service: its own name words plus the synonyms of any
  * concept its name belongs to.
+ *
+ * Only the concept the name actually belongs to contributes its synonyms —
+ * otherwise "Полировка кузова" would inherit the "шлифовка" stem and tie
+ * with a "Шлифовка" service.
  */
 function serviceStems(name: string): Set<string> {
   const stems = new Set<string>();
   const words = normalize(name).split(' ').filter(Boolean);
   for (const word of words) {
-    if (word.length < 4 || SERVICE_STOP_WORDS.has(word)) continue;
+    if (word.length < 4 || isStopWord(word)) continue;
     stems.add(stem(word));
   }
   for (const [concept, aliases] of Object.entries(CONCEPT_ALIASES)) {
-    const conceptStems = aliases.map(stem);
-    const nameBelongs = words.some((word) => conceptStems.includes(stem(word)) || word.includes(concept));
+    // The name must contain the concept itself, not just share a stem.
+    const nameBelongs = words.some((word) => word.startsWith(concept));
     if (!nameBelongs) continue;
     for (const alias of aliases) stems.add(stem(alias));
   }
@@ -88,17 +105,19 @@ export type ServiceMatch = {slug: string; score: number} | null;
 export function matchServiceByMessage(message: string, services: Array<{slug: string; name: string}>): ServiceMatch {
   const text = normalize(message);
   if (!text) return null;
-  const words = text.split(' ').filter(Boolean);
+  const words = text.split(' ').filter((word) => word.length >= 4 && !isStopWord(word));
+  if (!words.length) return null;
   let best: {slug: string; score: number} | null = null;
   let tied = false;
   for (const service of services) {
     const stems = serviceStems(service.name);
     if (!stems.size) continue;
+    // The service that matches the most of the customer's words wins, so
+    // "мойку кузова" resolves to "Мойка кузова" and not to a service that
+    // only shares the generic word.
     let score = 0;
     for (const word of words) {
-      if (word.length < 4) continue;
-      const candidate = stem(word);
-      if (stems.has(candidate) && candidate.length > score) score = candidate.length;
+      if (stems.has(stem(word))) score += 1;
     }
     if (!score) continue;
     if (!best || score > best.score) { best = {slug: service.slug, score}; tied = false; }
@@ -106,6 +125,133 @@ export function matchServiceByMessage(message: string, services: Array<{slug: st
   }
   if (!best || tied) return null;
   return best;
+}
+
+/**
+ * Extracts the phone number from a message. The customer's digits are the
+ * only trustworthy source — the model must never invent a contact detail.
+ */
+export function extractPhone(message: string): string {
+  const match = message.match(/(\+?\d[\d\s()\-]{7,}\d)/);
+  if (!match) return '';
+  const digits = match[1].replace(/\D/g, '');
+  if (digits.length < 5 || digits.length > 15) return '';
+  return match[1].trim();
+}
+
+/**
+ * Extracts the day the customer asked for. Relative words are resolved
+ * against the studio's current local day.
+ */
+export function extractDay(message: string, today: string): string | null {
+  const text = message.toLocaleLowerCase('ru-RU');
+  const shift = (days: number) => {
+    const date = new Date(`${today}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+  };
+  if (/послезавтра/.test(text)) return shift(2);
+  if (/сегодня/.test(text)) return shift(0);
+  if (/завтра/.test(text)) return shift(1);
+  const explicit = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (explicit) return `${explicit[1]}-${explicit[2]}-${explicit[3]}`;
+  const dotted = text.match(/\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/);
+  if (dotted) {
+    const day = String(Number(dotted[1])).padStart(2, '0');
+    const month = String(Number(dotted[2])).padStart(2, '0');
+    return `${dotted[3]}-${month}-${day}`;
+  }
+  return null;
+}
+
+/**
+ * Extracts the time the customer asked for, in HH:MM. "В любое время" and
+ * similar phrasings mean "no preference" and are reported as null so the
+ * server picks the first free slot of the day.
+ */
+export function extractTime(message: string): string | null {
+  const text = message.toLocaleLowerCase('ru-RU');
+  if (/любое время|когда удобно|в любое|подходит любое|любой день|любой час/.test(text)) return null;
+  const match = text.match(/\b(\d{1,2})[:.](\d{2})\b/);
+  if (match) {
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour > 23 || minute > 59) return null;
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  }
+  return null;
+}
+
+/**
+ * Extracts the vehicle the customer named. Car brands the studio services are
+ * recognised; anything else is left empty so the customer is asked.
+ */
+const VEHICLE_HINTS: Array<{patterns: RegExp; label: string}> = [
+  {patterns: /бмв|\bbmw\b/i, label: 'BMW'},
+  {patterns: /ауди|\baud[ie]\b/i, label: 'Audi'},
+  {patterns: /мерседес|мбс|\bml\b/i, label: 'Mercedes-Benz'},
+  {patterns: /\bтойота\b|\btoyota\b/i, label: 'Toyota'},
+  {patterns: /\bхендай\b|\bhyundai\b/i, label: 'Hyundai'},
+  {patterns: /\bфорд\b|\bford\b/i, label: 'Ford'},
+  {patterns: /\bшкода\b|\bskoda\b/i, label: 'Skoda'},
+  {patterns: /\bвольксваген\b|\bvw\b|\bфольксваген\b/i, label: 'Volkswagen'},
+  {patterns: /\bниссан\b|\bnissan\b/i, label: 'Nissan'},
+  {patterns: /\bмазда\b|\bmazda\b/i, label: 'Mazda'},
+  {patterns: /\bлада\b|\bgranta\b|\bприора\b|\bкалина\b/i, label: 'Lada'},
+];
+
+export function extractVehicle(message: string): string {
+  for (const hint of VEHICLE_HINTS) {
+    if (hint.patterns.test(message)) return hint.label;
+  }
+  return '';
+}
+
+/**
+ * Extracts the customer's name. Russian introductions ("зовут Саша", "меня
+ * зовут Иван", "имя Анна") are recognised; a bare name in such a phrase is
+ * taken as the name.
+ */
+export function extractName(message: string): string {
+  const patterns = [
+    /(?:зовут|звут|имя|имею)\s+([А-ЯЁа-яё][А-ЯЁа-яё\-]{1,30})/,
+    /это\s+([А-ЯЁа-яё][А-ЯЁа-яё\-]{1,30})/,
+  ];
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match) {
+      const name = match[1].replace(/[^А-ЯЁа-яё\-]/gi, '').trim();
+      if (name.length >= 2) return name;
+    }
+  }
+  return '';
+}
+
+/**
+ * Collects the booking fields from the customer's own words, without the
+ * model. Values already collected in a previous turn are kept when the
+ * current message does not repeat them.
+ */
+export function extractBookingFields(
+  message: string,
+  services: Array<{slug: string; name: string}>,
+  today: string,
+  current: BookingDraft,
+): BookingDraft {
+  const service = matchServiceByMessage(message, services);
+  const phone = extractPhone(message);
+  const name = extractName(message);
+  const vehicle = extractVehicle(message);
+  const day = extractDay(message, today);
+  const time = extractTime(message);
+  return {
+    serviceSlug: service?.slug ?? current.serviceSlug,
+    day: day ?? current.day,
+    time: time !== null ? time : current.time,
+    customerName: name || current.customerName,
+    customerPhone: phone || current.customerPhone,
+    vehicle: vehicle || current.vehicle,
+  };
 }
 
 export const bookingDraftSchema = z.object({

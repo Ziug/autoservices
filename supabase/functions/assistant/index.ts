@@ -3,7 +3,7 @@ import {z} from 'npm:zod@4.6.6';
 import {adminClient, checkRateLimit, errorMessage, forbiddenOrigin, json, preflight, requireMembership, tenantBySlug, userFromRequest} from '../_shared/http.ts';
 import {canUseOwnerAssistant, routeClientQuestion, routeOwnerQuestion} from './router.ts';
 import {buildBookingMessages, buildLlmMessages, mergeBookingDraft, missingBookingFields, parseBookingIntent, type BookingDraft, type StudioScope} from './prompt.ts';
-import {createBooking, hasActiveBookingDraft, localTimeToUtc, looksLikeBookingRequest, matchServiceByMessage, normalizeDraft, utcToLocalTime} from './booking.ts';
+import {createBooking, extractBookingFields, hasActiveBookingDraft, localTimeToUtc, looksLikeBookingRequest, matchServiceByMessage, normalizeDraft, utcToLocalTime} from './booking.ts';
 import {llmTimeout, remainingMs, startDeadline, type Deadline} from './budget.ts';
 
 const inputSchema = z.object({
@@ -296,6 +296,26 @@ async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet
 }
 
 /**
+ * Asks for exactly the fields that are still missing. The question is
+ * composed server-side so the customer always gets a precise prompt, even
+ * when the model is unavailable.
+ */
+function missingFieldsQuestion(missing: string[]): string {
+  const labels: Record<string, string> = {
+    service: 'услугу',
+    day: 'дату',
+    customerName: 'ваше имя',
+    customerPhone: 'телефон',
+    vehicle: 'автомобиль',
+  };
+  const parts = missing.map((key) => labels[key] ?? key);
+  if (parts.length === 1) return `Уточните, пожалуйста, ${parts[0]}.`;
+  const last = parts[parts.length - 1];
+  const rest = parts.slice(0, -1).join(', ');
+  return `Уточните, пожалуйста, ${rest} и ${last}.`;
+}
+
+/**
  * Booking flow: the model extracts the five fields, the server performs the
  * booking through create_public_booking and returns the access token so the
  * booking lands in the customer's "Моя запись" cabinet.
@@ -324,23 +344,21 @@ async function handleBooking(
     message: input.message,
   });
 
+  // The customer's own words decide which service is meant. The model once
+  // booked "Полировка кузова" for a request for "чистку салона", so the
+  // deterministic match wins when it is unambiguous.
+  const extracted = extractBookingFields(input.message, services ?? [], today, previousDraft);
   const intent = await bookingIntent(admin, payload, studio.id, today, input.messageCount, deadline);
-  if (!intent) {
-    return {
-      answer: 'Сейчас не получается оформить запись через чат. Позвоните в студию или оформите запись через расписание.',
-      draft: previousDraft,
-    };
-  }
-  const draft = mergeBookingDraft(previousDraft, intent.booking);
-  // The model's service guess is checked against the customer's own words. A
-  // customer saying "уборка" means "Чистка салона" — the model once booked
-  // "Полировка кузова" for it, which is the wrong service. The deterministic
-  // match wins when it is unambiguous; a tie keeps the model's choice.
-  const spokenService = matchServiceByMessage(input.message, services ?? []);
-  if (spokenService) draft.serviceSlug = spokenService.slug;
+  // The model fills in what the customer's words do not say (a service named
+  // in an unusual way, a relative day). Without the model the deterministic
+  // extraction still has to be able to complete a booking.
+  const draft = intent
+    ? mergeBookingDraft(mergeBookingDraft(previousDraft, extracted), intent.booking)
+    : extracted;
   const missing = missingBookingFields(draft);
   if (missing.length) {
-    return {answer: intent.answer || 'Уточните, пожалуйста, детали записи.', draft};
+    const ask = intent?.answer || missingFieldsQuestion(missing);
+    return {answer: ask, draft};
   }
   // The booking window is validated before touching the schedule: a past day
   // or a day beyond the 90-day horizon is rejected with a clear message.
@@ -354,7 +372,8 @@ async function handleBooking(
   const service = (services ?? []).find((item) => item.slug === draft.serviceSlug);
   if (!service) {
     return {answer: 'Не нашёл такую услугу. Уточните, какая услуга нужна.', draft: {...draft, serviceSlug: null}};
-  }  const {slot, dayHasSlots} = await resolveSlot(admin, studio, draft);
+  }
+  const {slot, dayHasSlots} = await resolveSlot(admin, studio, draft);
   if (!slot) {
     // resolveSlot already knows whether the day has any free window: a
     // missing slot with free windows means the requested time is wrong,

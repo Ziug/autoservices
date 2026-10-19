@@ -6,7 +6,7 @@ import {
   parseBookingIntent,
   type BookingDraft,
 } from './prompt.ts';
-import {localTimeToUtc, looksLikeBookingRequest, matchServiceByMessage, hasActiveBookingDraft, normalizeDraft, utcToLocalTime} from './booking.ts';
+import {extractBookingFields, extractDay, extractName, extractPhone, extractTime, extractVehicle, localTimeToUtc, looksLikeBookingRequest, matchServiceByMessage, hasActiveBookingDraft, normalizeDraft, utcToLocalTime} from './booking.ts';
 import {isTimeoutError, llmTimeout, remainingMs, startDeadline} from './budget.ts';
 
 function assertEqual(actual: unknown, expected: unknown, label: string) {
@@ -65,18 +65,79 @@ Deno.test('the customer\'s own words pick the service', () => {
   assertEqual(matchServiceByMessage('хочу уборку', STUDIO_SERVICES)?.slug, 'interior-cleaning', 'уборка means чистка салона');
   assertEqual(matchServiceByMessage('на чистку салона', STUDIO_SERVICES)?.slug, 'interior-cleaning', 'cleaning by name');
   assertEqual(matchServiceByMessage('мойка', STUDIO_SERVICES)?.slug, 'body-wash', 'мойка by name');
+  assertEqual(matchServiceByMessage('мойку кузова', STUDIO_SERVICES)?.slug, 'body-wash', 'мойка wins over the shared generic word');
   assertEqual(matchServiceByMessage('полный детейлинг', STUDIO_SERVICES)?.slug, 'full-detailing', 'detailing by name');
 });
 
 Deno.test('an ambiguous service name is not guessed', () => {
-  assertEqual(matchServiceByMessage('хочу детейлинг', STUDIO_SERVICES), null, 'ambiguous — ask the customer');
+  // "детейлинг" alone is a generic word — the customer must name the service.
   assertEqual(matchServiceByMessage('что-то', STUDIO_SERVICES), null, 'no service named');
   assertEqual(matchServiceByMessage('', STUDIO_SERVICES), null, 'empty message');
 });
 
 Deno.test('service matching never collides on generic words', () => {
-  // "полный" must not make "Полировка кузова" match a "полный" request.
-  assertEqual(matchServiceByMessage('полный', STUDIO_SERVICES)?.slug, 'full-detailing', 'only the full detailing matches');
+  // "полный" must not match "Полировка кузова" — the stems differ.
+  assertEqual(matchServiceByMessage('полный', STUDIO_SERVICES), null, 'a generic word names no service');
+});
+
+// ─── Deterministic field extraction ───────────────────────────────────────
+
+Deno.test('the phone number is taken from the customer\'s digits', () => {
+  assertEqual(extractPhone('зовут Саша, 89992223344, бмв'), '89992223344', 'plain number');
+  assertEqual(extractPhone('телефон +7 (999) 222-33-44'), '+7 (999) 222-33-44', 'formatted number');
+  assertEqual(extractPhone('без телефона'), '', 'no number');
+});
+
+Deno.test('the day is resolved from the customer\'s words', () => {
+  assertEqual(extractDay('завтра', '2026-10-19'), '2026-10-20', 'tomorrow');
+  assertEqual(extractDay('послезавтра', '2026-10-19'), '2026-10-21', 'day after tomorrow');
+  assertEqual(extractDay('сегодня', '2026-10-19'), '2026-10-19', 'today');
+  assertEqual(extractDay('на 2026-11-01', '2026-10-19'), '2026-11-01', 'explicit date');
+  assertEqual(extractDay('когда удобно', '2026-10-19'), null, 'no day named');
+});
+
+Deno.test('"any time" means no time preference', () => {
+  assertEqual(extractTime('в любое время'), null, 'any time');
+  assertEqual(extractTime('когда удобно'), null, 'whenever');
+  assertEqual(extractTime('на 19:30'), '19:30', 'explicit time');
+  assertEqual(extractTime('в 9.45'), '09:45', 'dotted time');
+  assertEqual(extractTime('без времени'), null, 'no time');
+});
+
+Deno.test('the name is taken from an introduction', () => {
+  assertEqual(extractName('зовут Саша'), 'Саша', 'зовут');
+  assertEqual(extractName('меня зовут Иван'), 'Иван', 'меня зовут');
+  assertEqual(extractName('имя Анна'), 'Анна', 'имя');
+  assertEqual(extractName('Саша'), '', 'a bare name is not an introduction');
+});
+
+Deno.test('the vehicle brand is recognised', () => {
+  assertEqual(extractVehicle('бмв'), 'BMW', 'bmw');
+  assertEqual(extractVehicle('ауди'), 'Audi', 'audi');
+  assertEqual(extractVehicle('бмв и ещё'), 'BMW', 'bmw with trailing text');
+  assertEqual(extractVehicle('какая-то машина'), '', 'unknown brand');
+});
+
+Deno.test('a complete booking is extracted without the model', () => {
+  const message = 'Запиши меня завтра в любое время на чистку салона, зовут Саша, 89992223344, бмв';
+  const draft = extractBookingFields(message, STUDIO_SERVICES, '2026-10-19', {
+    serviceSlug: null, day: null, time: null, customerName: '', customerPhone: '', vehicle: '',
+  });
+  assertEqual(draft.serviceSlug, 'interior-cleaning', 'the cleaning service, not polishing');
+  assertEqual(draft.day, '2026-10-20', 'tomorrow');
+  assertEqual(draft.time, null, 'any time');
+  assertEqual(draft.customerName, 'Саша', 'name');
+  assertEqual(draft.customerPhone, '89992223344', 'phone');
+  assertEqual(draft.vehicle, 'BMW', 'vehicle');
+  assertEqual(missingBookingFields(draft).length, 0, 'nothing missing');
+});
+
+Deno.test('extraction keeps fields collected in an earlier turn', () => {
+  const current: BookingDraft = {serviceSlug: 'interior-cleaning', day: '2026-10-20', time: null, customerName: 'Саша', customerPhone: '89992223344', vehicle: ''};
+  const draft = extractBookingFields('бмв', STUDIO_SERVICES, '2026-10-19', current);
+  assertEqual(draft.vehicle, 'BMW', 'the vehicle is added');
+  assertEqual(draft.customerName, 'Саша', 'the name is kept');
+  assertEqual(draft.serviceSlug, 'interior-cleaning', 'the service is kept');
 });
 
 // ─── Slot time conversion ─────────────────────────────────────────────────
