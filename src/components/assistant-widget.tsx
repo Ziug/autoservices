@@ -24,16 +24,50 @@ const EMPTY_DRAFT: AssistantBookingDraft = {
   vehicle: '',
 };
 
+/**
+ * The collected booking fields live in localStorage so an unfinished booking
+ * survives a page reload — otherwise the customer would have to repeat the
+ * details they already gave. The idempotency key is stored with them so a
+ * reload cannot create a second appointment for the same intent.
+ */
+type StoredBookingState = {draft: AssistantBookingDraft; idempotencyKey: string};
+
+function bookingStateKey(businessSlug: string) {
+  return `autoservices:booking-draft:${businessSlug}`;
+}
+
+function loadBookingState(businessSlug: string): StoredBookingState {
+  const fallback = {draft: EMPTY_DRAFT, idempotencyKey: createClientId()};
+  try {
+    const raw = localStorage.getItem(bookingStateKey(businessSlug));
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<StoredBookingState>;
+    if (!parsed.draft || typeof parsed.idempotencyKey !== 'string') return fallback;
+    return {
+      draft: {...EMPTY_DRAFT, ...parsed.draft},
+      idempotencyKey: parsed.idempotencyKey,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveBookingState(businessSlug: string, state: StoredBookingState) {
+  try {
+    localStorage.setItem(bookingStateKey(businessSlug), JSON.stringify(state));
+  } catch {
+    // Storage may be unavailable — the booking still works within the session.
+  }
+}
+
 export function AssistantWidget({business, audience, inline = false}: {business: BusinessConfig; audience: 'client' | 'owner'; inline?: boolean}) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   // Collected booking fields survive across turns so the customer can answer
   // "а машина BMW" without repeating the service they already named.
-  const [draft, setDraft] = useState<AssistantBookingDraft>(EMPTY_DRAFT);
-  // Stable per draft: the same booking intent retried resolves to the same
-  // appointment instead of creating a second one.
-  const [idempotencyKey, setIdempotencyKey] = useState(() => createClientId());
+  const [bookingState, setBookingState] = useState(() => loadBookingState(business.slug));
+  const {draft, idempotencyKey} = bookingState;
   const [created, setCreated] = useState<CreatedBooking | null>(null);
   const userMessageCount = messages.filter((m) => m.role === 'user').length + 1;
   const mutation = useMutation({
@@ -46,7 +80,6 @@ export function AssistantWidget({business, audience, inline = false}: {business:
       idempotencyKey,
     }),
     onSuccess: ({answer, draft: nextDraft, booking}) => {
-      if (nextDraft) setDraft(nextDraft);
       if (booking) {
         // Store the access pair exactly like the schedule flow does, so the
         // booking shows up in "Моя запись" as if the customer booked it there.
@@ -62,8 +95,15 @@ export function AssistantWidget({business, audience, inline = false}: {business:
           startsAt: booking.startsAt,
           serviceName: booking.serviceName,
         });
-        setDraft(EMPTY_DRAFT);
-        setIdempotencyKey(createClientId());
+        // The booking is done: drop the draft and start a new idempotency key
+        // so the next booking is a separate appointment.
+        const reset = {draft: EMPTY_DRAFT, idempotencyKey: createClientId()};
+        setBookingState(reset);
+        saveBookingState(business.slug, reset);
+      } else if (nextDraft) {
+        const next = {...bookingState, draft: nextDraft};
+        setBookingState(next);
+        saveBookingState(business.slug, next);
       }
       setMessages((current) => [...current, {id: createClientId(), role: 'assistant', text: answer}]);
     },

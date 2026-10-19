@@ -3,7 +3,7 @@ import {z} from 'npm:zod@4.6.6';
 import {adminClient, checkRateLimit, errorMessage, forbiddenOrigin, json, preflight, requireMembership, tenantBySlug, userFromRequest} from '../_shared/http.ts';
 import {canUseOwnerAssistant, routeClientQuestion, routeOwnerQuestion} from './router.ts';
 import {buildBookingMessages, buildLlmMessages, mergeBookingDraft, missingBookingFields, parseBookingIntent, type BookingDraft, type StudioScope} from './prompt.ts';
-import {createBooking, localTimeToUtc, looksLikeBookingRequest, normalizeDraft, utcToLocalTime} from './booking.ts';
+import {createBooking, hasActiveBookingDraft, localTimeToUtc, looksLikeBookingRequest, matchServiceByMessage, normalizeDraft, utcToLocalTime} from './booking.ts';
 import {llmTimeout, remainingMs, startDeadline, type Deadline} from './budget.ts';
 
 const inputSchema = z.object({
@@ -332,6 +332,12 @@ async function handleBooking(
     };
   }
   const draft = mergeBookingDraft(previousDraft, intent.booking);
+  // The model's service guess is checked against the customer's own words. A
+  // customer saying "уборка" means "Чистка салона" — the model once booked
+  // "Полировка кузова" for it, which is the wrong service. The deterministic
+  // match wins when it is unambiguous; a tie keeps the model's choice.
+  const spokenService = matchServiceByMessage(input.message, services ?? []);
+  if (spokenService) draft.serviceSlug = spokenService.slug;
   const missing = missingBookingFields(draft);
   if (missing.length) {
     return {answer: intent.answer || 'Уточните, пожалуйста, детали записи.', draft};
@@ -348,8 +354,7 @@ async function handleBooking(
   const service = (services ?? []).find((item) => item.slug === draft.serviceSlug);
   if (!service) {
     return {answer: 'Не нашёл такую услугу. Уточните, какая услуга нужна.', draft: {...draft, serviceSlug: null}};
-  }
-  const {slot, dayHasSlots} = await resolveSlot(admin, studio, draft);
+  }  const {slot, dayHasSlots} = await resolveSlot(admin, studio, draft);
   if (!slot) {
     // resolveSlot already knows whether the day has any free window: a
     // missing slot with free windows means the requested time is wrong,
@@ -376,8 +381,12 @@ async function handleBooking(
   if (result.status !== 'created') {
     return {answer: result.message, draft};
   }
+  // The confirmation is composed by the server from the real booking: the
+  // model only sees the requested slot, not the one that was actually taken.
+  const slotLabel = result.slotLabel;
+  const dayLabel = new Intl.DateTimeFormat('ru-RU', {timeZone: studio.timezone, day: 'numeric', month: 'long'}).format(new Date(result.appointment.startsAt));
   return {
-    answer: `${intent.answer || 'Записал вас.'}`.trim(),
+    answer: `Записал вас: ${service.name}, ${dayLabel} в ${slotLabel}. Запись появилась в разделе «Моя запись».`,
     draft,
     booking: {
       appointmentId: result.appointment.id,
@@ -518,9 +527,12 @@ Deno.serve(async (request) => {
       const role = await requireMembership(admin, tenant.id, user.id);
       if (!canUseOwnerAssistant(role)) return json(request, {error: 'Нет доступа к помощнику владельца.'}, 403);
     }
-    // Booking flow: only for clients, only when the customer actually asks to
-    // be booked. The owner audience manages appointments through owner-api.
-    if (input.audience === 'client' && looksLikeBookingRequest(input.message)) {
+    // Booking flow: only for clients, and only when the customer asks to be
+    // booked OR a booking is already in progress. A follow-up message
+    // ("зовут Некит, +7 999...") carries no booking trigger but must continue
+    // the booking instead of falling through to the ordinary chat.
+    const draftInProgress = input.audience === 'client' && hasActiveBookingDraft(normalizeDraft(input.bookingDraft));
+    if (input.audience === 'client' && (looksLikeBookingRequest(input.message) || draftInProgress)) {
       // Bookings are writes — they get their own, tighter budget than chat.
       if (!await checkRateLimit(admin, request, 'assistant-booking', tenant.id, 8, 600)) {
         return json(request, {error: 'Слишком много попыток записи. Подождите несколько минут.'}, 429);

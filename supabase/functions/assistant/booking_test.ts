@@ -6,7 +6,7 @@ import {
   parseBookingIntent,
   type BookingDraft,
 } from './prompt.ts';
-import {localTimeToUtc, looksLikeBookingRequest, normalizeDraft, utcToLocalTime} from './booking.ts';
+import {localTimeToUtc, looksLikeBookingRequest, matchServiceByMessage, hasActiveBookingDraft, normalizeDraft, utcToLocalTime} from './booking.ts';
 import {isTimeoutError, llmTimeout, remainingMs, startDeadline} from './budget.ts';
 
 function assertEqual(actual: unknown, expected: unknown, label: string) {
@@ -30,6 +30,53 @@ Deno.test('ordinary questions are not booking requests', () => {
   assertEqual(looksLikeBookingRequest('Сколько стоит полировка?'), false, 'price question');
   assertEqual(looksLikeBookingRequest('Как найти студию?'), false, 'location question');
   assertEqual(looksLikeBookingRequest('Какие есть услуги?'), false, 'services question');
+});
+
+// ─── Booking continuation across turns ────────────────────────────────────
+
+Deno.test('a follow-up without a trigger continues the booking', () => {
+  // Turn 1: the customer asks to be booked.
+  assertTrue(looksLikeBookingRequest('Запиши меня завтра на полировку'), 'first turn triggers');
+  // Turn 2: the customer only supplies contact details — no trigger, but the
+  // booking is still in progress and must not fall through to plain chat.
+  assertEqual(looksLikeBookingRequest('зовут некит, 89996667788, бмв'), false, 'follow-up has no trigger');
+  const draft: BookingDraft = {serviceSlug: 'polishing', day: '2026-10-20', time: null, customerName: '', customerPhone: '', vehicle: ''};
+  assertEqual(hasActiveBookingDraft(draft), true, 'unfinished booking continues');
+});
+
+Deno.test('a finished or absent booking does not continue', () => {
+  const empty: BookingDraft = {serviceSlug: null, day: null, time: null, customerName: '', customerPhone: '', vehicle: ''};
+  assertEqual(hasActiveBookingDraft(empty), false, 'nothing collected');
+  const complete: BookingDraft = {serviceSlug: 'polishing', day: '2026-10-20', time: '10:00', customerName: 'Некит', customerPhone: '8999', vehicle: 'БМВ'};
+  assertEqual(hasActiveBookingDraft(complete), false, 'booking already created');
+});
+
+// ─── Deterministic service matching ───────────────────────────────────────
+
+const STUDIO_SERVICES = [
+  {slug: 'polishing', name: 'Полировка кузова'},
+  {slug: 'interior-cleaning', name: 'Чистка салона'},
+  {slug: 'body-wash', name: 'Мойка кузова'},
+  {slug: 'full-detailing', name: 'Полный детейлинг'},
+];
+
+Deno.test('the customer\'s own words pick the service', () => {
+  assertEqual(matchServiceByMessage('хочу полировку', STUDIO_SERVICES)?.slug, 'polishing', 'polishing by name');
+  assertEqual(matchServiceByMessage('хочу уборку', STUDIO_SERVICES)?.slug, 'interior-cleaning', 'уборка means чистка салона');
+  assertEqual(matchServiceByMessage('на чистку салона', STUDIO_SERVICES)?.slug, 'interior-cleaning', 'cleaning by name');
+  assertEqual(matchServiceByMessage('мойка', STUDIO_SERVICES)?.slug, 'body-wash', 'мойка by name');
+  assertEqual(matchServiceByMessage('полный детейлинг', STUDIO_SERVICES)?.slug, 'full-detailing', 'detailing by name');
+});
+
+Deno.test('an ambiguous service name is not guessed', () => {
+  assertEqual(matchServiceByMessage('хочу детейлинг', STUDIO_SERVICES), null, 'ambiguous — ask the customer');
+  assertEqual(matchServiceByMessage('что-то', STUDIO_SERVICES), null, 'no service named');
+  assertEqual(matchServiceByMessage('', STUDIO_SERVICES), null, 'empty message');
+});
+
+Deno.test('service matching never collides on generic words', () => {
+  // "полный" must not make "Полировка кузова" match a "полный" request.
+  assertEqual(matchServiceByMessage('полный', STUDIO_SERVICES)?.slug, 'full-detailing', 'only the full detailing matches');
 });
 
 // ─── Slot time conversion ─────────────────────────────────────────────────

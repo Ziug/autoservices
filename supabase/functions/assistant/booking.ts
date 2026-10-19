@@ -16,6 +16,98 @@ export function looksLikeBookingRequest(message: string): boolean {
   return BOOKING_TRIGGERS.test(message.toLocaleLowerCase('ru-RU'));
 }
 
+/**
+ * True when a booking is already in progress: some fields are collected and
+ * some are still missing. A follow-up message ("зовут Некит, +7 999...") does
+ * not contain a booking trigger, but it must continue the booking flow
+ * instead of falling through to the ordinary chat.
+ */
+export function hasActiveBookingDraft(draft: BookingDraft): boolean {
+  const collected = [draft.serviceSlug, draft.day, draft.customerName, draft.customerPhone, draft.vehicle].filter(Boolean);
+  return collected.length > 0 && collected.length < 5;
+}
+
+/**
+ * Generic words that describe a service rather than name it. They must not
+ * become match stems, otherwise "Полный детейлинг" and "Полировка кузова"
+ * would collide on the stem "пол".
+ */
+const SERVICE_STOP_WORDS = new Set([
+  'полн', 'полный', 'полная', 'кузов', 'салон', 'услуга', 'комплекс', 'авто', 'автомобил',
+]);
+
+/**
+ * Synonyms a customer may use for a service. The studio's own service names
+ * are matched too, but a customer says "уборка" for "Чистка салона" and
+ * "мойка" for "Мойка кузова" — the model alone picked the wrong one.
+ */
+const CONCEPT_ALIASES: Record<string, string[]> = {
+  мойка: ['мойка', 'мойку', 'мыть', 'мытье', 'мытьё', 'помыть', 'помывка'],
+  чистка: ['чистка', 'чистку', 'чистить', 'уборка', 'уборку', 'убрать', 'вымыть'],
+  полировка: ['полировка', 'полировку', 'полировать', 'шлифовка', 'шлифовку', 'шлифовать'],
+  детейлинг: ['детейлинг', 'детейлинга'],
+};
+
+/** Lowercase, ё→е, letters and digits only. */
+function normalize(value: string): string {
+  return value.toLocaleLowerCase('ru-RU').replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/gi, ' ').trim();
+}
+
+/** 3-character stem so "чистка" and "чистить" share the same root. */
+function stem(word: string): string {
+  return word.slice(0, 3);
+}
+
+/**
+ * Match stems for one service: its own name words plus the synonyms of any
+ * concept its name belongs to.
+ */
+function serviceStems(name: string): Set<string> {
+  const stems = new Set<string>();
+  const words = normalize(name).split(' ').filter(Boolean);
+  for (const word of words) {
+    if (word.length < 4 || SERVICE_STOP_WORDS.has(word)) continue;
+    stems.add(stem(word));
+  }
+  for (const [concept, aliases] of Object.entries(CONCEPT_ALIASES)) {
+    const conceptStems = aliases.map(stem);
+    const nameBelongs = words.some((word) => conceptStems.includes(stem(word)) || word.includes(concept));
+    if (!nameBelongs) continue;
+    for (const alias of aliases) stems.add(stem(alias));
+  }
+  return stems;
+}
+
+export type ServiceMatch = {slug: string; score: number} | null;
+
+/**
+ * Deterministic service matching: the customer's own words decide which
+ * service is meant, not the language model's guess. A tie between two
+ * services returns null so the customer is asked to choose.
+ */
+export function matchServiceByMessage(message: string, services: Array<{slug: string; name: string}>): ServiceMatch {
+  const text = normalize(message);
+  if (!text) return null;
+  const words = text.split(' ').filter(Boolean);
+  let best: {slug: string; score: number} | null = null;
+  let tied = false;
+  for (const service of services) {
+    const stems = serviceStems(service.name);
+    if (!stems.size) continue;
+    let score = 0;
+    for (const word of words) {
+      if (word.length < 4) continue;
+      const candidate = stem(word);
+      if (stems.has(candidate) && candidate.length > score) score = candidate.length;
+    }
+    if (!score) continue;
+    if (!best || score > best.score) { best = {slug: service.slug, score}; tied = false; }
+    else if (score === best.score) tied = true;
+  }
+  if (!best || tied) return null;
+  return best;
+}
+
 export const bookingDraftSchema = z.object({
   serviceSlug: z.string().max(120).nullable().optional(),
   day: z.string().max(10).nullable().optional(),
