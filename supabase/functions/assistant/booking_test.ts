@@ -97,6 +97,15 @@ Deno.test('booking intent rejects malformed output', () => {
   assertEqual(parseBookingIntent('{"answer":"ok"'), null, 'unterminated object');
 });
 
+Deno.test('booking intent recovers JSON from a reasoning channel', () => {
+  // Reasoning models sometimes put the final JSON in the reasoning field.
+  const reasoning = 'Let me think... The customer wants полировка. {"answer":"Записал","booking":{"serviceSlug":"polirovka","customerName":"Некит","customerPhone":"8999","vehicle":"БМВ"}}';
+  const intent = parseBookingIntent(reasoning);
+  assertTrue(intent !== null, 'recovered from reasoning');
+  assertEqual(intent!.booking.serviceSlug, 'polirovka', 'service recovered');
+  assertEqual(intent!.booking.customerName, 'Некит', 'name recovered');
+});
+
 Deno.test('booking intent with missing booking block yields empty draft', () => {
   const intent = parseBookingIntent('{"answer":"Просто вопрос"}');
   assertTrue(intent !== null, 'parsed');

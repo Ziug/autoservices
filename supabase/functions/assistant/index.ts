@@ -179,7 +179,8 @@ function llmRates() {
   const inputRate = positiveInteger('LLM_INPUT_MICRO_USD_PER_1K_TOKENS', 20_000, 1_000_000);
   const outputRate = positiveInteger('LLM_OUTPUT_MICRO_USD_PER_1K_TOKENS', 80_000, 1_000_000);
   const reservedInputTokens = 24_000;
-  const reservedOutputTokens = 400;
+  // Must cover the largest max_tokens used by any call (booking flow).
+  const reservedOutputTokens = 1_200;
   return {
     inputRate,
     outputRate,
@@ -255,7 +256,7 @@ async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet
     let completion: Awaited<ReturnType<typeof client.chat.completions.create>>;
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        completion = await client.chat.completions.create({model, temperature: 0, max_tokens: 350, messages: buildLlmMessages(factsJson, message, messageCount)});
+        completion = await client.chat.completions.create({model, temperature: 0, max_tokens: 800, messages: buildLlmMessages(factsJson, message, messageCount)});
         break;
       } catch (retryError) {
         if (attempt === 2) throw retryError;
@@ -269,7 +270,11 @@ async function modelAnswer(admin: ReturnType<typeof adminClient>, facts: FactSet
     // must never be surfaced as an answer.
     const answer = (choice?.content ?? '').trim();
     if (!answer) {
-      console.error('[assistant] empty content from model, using deterministic fallback');
+      console.error('[assistant] empty content from model, using deterministic fallback', {
+        model: completion!.model,
+        finishReason: completion!.choices[0]?.finish_reason,
+        reasoningLength: (choice as {reasoning?: string} | undefined)?.reasoning?.length ?? 0,
+      });
       return fallback;
     }
     return answer;
@@ -382,16 +387,45 @@ async function bookingIntent(admin: ReturnType<typeof adminClient>, payload: str
   try {
     const baseURL = Deno.env.get('LLM_BASE_URL');
     const client = new OpenAI({apiKey, ...(baseURL ? {baseURL} : {}), maxRetries: 0, timeout: 6_000});
-    const completion = await client.chat.completions.create({
-      model,
-      temperature: 0,
-      max_tokens: 400,
-      messages: buildBookingMessages(payload, messageCount),
-    });
+    const messages = buildBookingMessages(payload, messageCount);
+    // Reasoning models spend the token budget on thinking before emitting
+    // the JSON answer — a small cap truncates the reply to an empty string.
+    let completion: Awaited<ReturnType<typeof client.chat.completions.create>> | null = null;
+    // JSON mode keeps the reply parseable, but not every OpenRouter model
+    // supports it — fall back to a plain call when the provider rejects it.
+    for (const useJsonMode of [true, false]) {
+      try {
+        completion = await client.chat.completions.create({
+          model,
+          temperature: 0,
+          max_tokens: 1_200,
+          messages,
+          ...(useJsonMode ? {response_format: {type: 'json_object' as const}} : {}),
+        });
+        break;
+      } catch (modeError) {
+        console.error(`[assistant] booking intent call failed (jsonMode=${useJsonMode}):`, modeError instanceof Error ? modeError.message : String(modeError));
+      }
+    }
+    if (!completion) return null;
     await recordUsage(admin, completion, tenantId, day);
-    const content = (completion.choices[0]?.message?.content ?? '').trim();
+    const message = completion.choices[0]?.message;
+    const content = (message?.content ?? '').trim();
     if (!content) {
-      console.error('[assistant] booking intent: empty content');
+      const reasoning = (message as {reasoning?: string} | undefined)?.reasoning?.trim() ?? '';
+      console.error('[assistant] booking intent: empty content', {
+        model: completion.model,
+        finishReason: completion.choices[0]?.finish_reason,
+        reasoningLength: reasoning.length,
+        reasoningHead: reasoning.slice(0, 200),
+      });
+      // Some reasoning models emit the final answer inside the reasoning
+      // channel. Extract the JSON object from there — the raw reasoning is
+      // never shown to the customer.
+      if (reasoning) {
+        const recovered = parseBookingIntent(reasoning);
+        if (recovered) return recovered;
+      }
       return null;
     }
     return parseBookingIntent(content);
