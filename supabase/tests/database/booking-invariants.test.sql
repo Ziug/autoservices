@@ -209,6 +209,30 @@ select extensions.throws_ok($test$
 $test$, '23P01', 'SLOT_TAKEN', 'a move into the studio-wide taken window fails without touching the booking') from test_fixtures;
 select extensions.is((select starts_at from public.appointments where id = (select booking_a2 from test_fixtures)), starts_at + interval '4 hours', 'the failed move preserves the original time') from test_fixtures;
 
+-- Studio-wide single capacity is enforced by the database itself, not only by
+-- the RPCs: a direct insert of a second overlapping occupancy is rejected by
+-- the exclusion constraint, so no write path can bypass the rule.
+select extensions.is((select count(*) from public.resource_occupancies
+  where tenant_id = (select tenant_b from test_fixtures) and studio_capacity_key is not null), 1::bigint,
+  'a flagged studio stamps the capacity key on its live occupancies') from test_fixtures;
+select extensions.throws_ok($test$
+  insert into public.resource_occupancies (tenant_id, resource_id, kind, occupied, label)
+  select tenant_b, resource_id, 'block', tstzrange(starts_at, starts_at + interval '1 hour', '[)'), 'Direct insert'
+  from public.resource_occupancies
+  where tenant_id = (select tenant_b from test_fixtures) and released_at is null limit 1
+$test$, '23P01', null, 'a direct insert cannot bypass the studio-wide capacity rule');
+select extensions.is((select count(*) from public.resource_occupancies
+  where tenant_id = (select tenant_b from test_fixtures) and label = 'Direct insert'), 0::bigint,
+  'the rejected direct insert leaves no occupancy behind') from test_fixtures;
+-- A studio without the flag keeps booking in parallel on separate posts.
+select extensions.is((select count(*) from public.resource_occupancies
+  where tenant_id = (select tenant_a from test_fixtures) and studio_capacity_key is not null), 0::bigint,
+  'an unflagged studio has no capacity key, so its posts stay independent') from test_fixtures;
+select extensions.throws_ok($test$
+  update public.tenants set booking_single_capacity = true where id = (select tenant_a from test_fixtures)
+$test$, '22023', 'CANNOT_ENABLE_SINGLE_CAPACITY',
+  'single capacity cannot be enabled while the studio already has overlapping bookings');
+
 -- Order details: additional services, owner notes, payments and refunds.
 -- Order total = original price + extras (never stored, never from payments).
 insert into public.appointment_services (tenant_id, appointment_id, service_id, name, price_minor, kind)
